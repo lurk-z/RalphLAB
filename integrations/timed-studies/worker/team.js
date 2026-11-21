@@ -105,8 +105,9 @@ function teamDefinition(role, owner, model) {
 }
 
 async function agentsRequest(env, path, body) {
+  const key = env.OPENAI_API_KEY?.trim().replace(/^OPENAI_API_KEY\s*=\s*/, "").replace(/^Bearer\s+/i, "").replace(/^(["'])(.*)\1$/, "$2").trim();
   requireValue(
-    env.OPENAI_API_KEY,
+    key,
     503,
     "ยังไม่มี OPENAI_API_KEY ใน Site settings",
   );
@@ -115,13 +116,23 @@ async function agentsRequest(env, path, body) {
     redirect: "manual",
     signal: AbortSignal.timeout(22000),
     headers: {
-      Authorization: "Bearer " + env.OPENAI_API_KEY,
+      Authorization: "Bearer " + key,
       "OpenAI-Beta": "agents=v1",
       "Content-Type": "application/json",
     },
     ...(body && { body: JSON.stringify(body) }),
   });
   if (!response.ok) {
+    // Provider messages may contain part of a credential. Return only known categories.
+    const error = (await response.json().catch(() => ({})))?.error || {};
+    const hints = {
+      invalid_api_key: "คีย์ใช้ยืนยันตัวตนไม่ได้ (invalid_api_key)",
+      insufficient_quota: "โควตาหรือเครดิตของโปรเจกต์ไม่พอ (insufficient_quota)",
+      insufficient_permissions: "คีย์มีสิทธิ์ไม่พอ (insufficient_permissions)",
+      model_not_found: "โปรเจกต์เข้าถึงโมเดลนี้ไม่ได้ (model_not_found)",
+    };
+    const scopes = [...new Set((typeof error.message === "string" ? error.message : "").match(/\bapi\.(?:agents|responses)\.(?:read|write)\b/g) || [])];
+    const hint = scopes.length ? "ตรวจสิทธิ์ " + scopes.join(", ") : Object.hasOwn(hints,error.code) ? hints[error.code] : null;
     const detail = {
       401: "ตรวจคีย์ของโปรเจกต์",
       403: "ตรวจสิทธิ์ Agents API ของโปรเจกต์",
@@ -132,7 +143,7 @@ async function agentsRequest(env, path, body) {
       "OpenAI ตอบ HTTP " +
         response.status +
         " · " +
-        (detail[response.status] || "ตรวจการตั้งค่าใน OpenAI Platform"),
+        (hint || detail[response.status] || "ตรวจการตั้งค่าใน OpenAI Platform"),
     );
   }
   return response.json();
