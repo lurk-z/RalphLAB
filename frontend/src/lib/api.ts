@@ -1,5 +1,5 @@
 import { getSession } from "next-auth/react";
-import { loginEnabled } from "./login-mode";
+import { loginEnabled } from "./login-mode.ts";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
