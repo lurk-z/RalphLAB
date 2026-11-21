@@ -1,4 +1,4 @@
-// Tam · LINE OA phone demo. Only the sample work order is available here.
+// Tam · LINE OA phone demo with sample work orders.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -9,7 +9,7 @@ const maxBytes = 1024 * 1024;
 
 export function createLineDemo({ secret, token, send = fetch, now = () => new Date() }) {
   if (!secret || !token) throw new Error("Set LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN");
-  const order = reports.makeOrder("WO-001", reports.exampleId, now().toISOString());
+  const orders = reports.makeDemoOrders(now().toISOString());
   // A webhook may be retried after one reply from its batch already succeeded.
   const delivered = new Map();
 
@@ -23,7 +23,7 @@ export function createLineDemo({ secret, token, send = fetch, now = () => new Da
       delivered.delete(id);
     }
     if (delivered.has(key)) return delivered.get(key).pending;
-    const text = "RalphLAB · ข้อมูลสาธิต\n" + reports.report(event.message.text, [order], order.alias, time);
+    const text = "RalphLAB · ข้อมูลสาธิต\n" + reports.report(event.message.text, orders, orders[0].alias, time);
     const pending = send(replyUrl, {
       method: "POST",
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },

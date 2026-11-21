@@ -3,7 +3,7 @@
 
 (() => {
   const storageKey = "ralphlab.tam.messaging.v1";
-  const { exampleId, makeOrder, caseReply, report, states } = globalThis.RalphLabReports;
+  const { makeDemoOrders, makeOrder, caseReply, report, states } = globalThis.RalphLabReports;
   const byId = id => document.getElementById(id);
   const timestamp = () => new Date().toISOString();
   const message = (text, mine = false) => ({ text, mine });
@@ -13,8 +13,9 @@
   }
 
   function newDemo() {
-    const order = makeOrder("WO-001", exampleId, timestamp());
-    return { orders: [order], selected: order.id, unread: 1,
+    const orders = makeDemoOrders(timestamp());
+    const order = orders[0];
+    return { orders, selected: order.id, unread: 1,
       line: [message("พิมพ์ คำสั่ง เพื่อดูเมนู")],
       telegram: [message(approvalNotice(order))] };
   }
