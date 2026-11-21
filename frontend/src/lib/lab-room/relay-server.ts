@@ -39,11 +39,20 @@ export async function relayLabRequest(request:NextRequest, target:"chat"|"timed"
       cache:"no-store",signal:AbortSignal.timeout(8000)}).catch(()=>null);
     if(!orders?.ok)return fail("อ่านใบงานของโปรเจกต์ไม่ได้",503);
     const rows:Case[]=await orders.json();
-    body={...body,scope,project,orderEvidence:extractOrderEvidence(rows),records:rows.slice(0,24).map(r=>({
+    const mentioned = new Set(String(body.question || "").toLowerCase().match(/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}/g) || []);
+    const relevant = [...rows.filter(r=>mentioned.has(r.id)), ...rows.filter(r=>!mentioned.has(r.id))];
+    body={...body,scope,project,orderEvidence:extractOrderEvidence(relevant),records:relevant.slice(0,24).map(r=>({
       id:r.id,title:r.request.brief.slice(0,240),state:r.state,sequence:r.events.length,
       kind:"kind" in r.request?r.request.kind:undefined,discipline:"discipline" in r.request?r.request.discipline:undefined,
       assignee:"assignee" in r.request?r.request.assignee:undefined,draft:"draft" in r.request?r.request.draft?.slice(0,800):undefined,
       stages:"stages" in r?r.stages.map(({id,title,status,minimum_values,due})=>({id,title,status,minimum_values,due})):undefined}))};
+    // Keep the named work and current turn when the project has many long worksheets.
+    const context = body as {records:unknown[];orderEvidence:unknown[];history?:unknown[]};
+    const exceedsRelayLimit = () => Buffer.byteLength(JSON.stringify(body)) > 96000;
+    while(context.records.length > 1 && exceedsRelayLimit()) context.records.pop();
+    while(context.orderEvidence.length && exceedsRelayLimit()) context.orderEvidence.pop();
+    while(Array.isArray(context.history) && context.history.length && exceedsRelayLimit()) context.history.shift();
+    if(exceedsRelayLimit())return fail("ข้อความและบริบทของใบงานยาวเกินกำหนด",413);
     headers["x-ralphlab-chat-relay"]=token;
   }else{
     if(parts.length>2 || (parts.length && !/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(parts[0])) ||

@@ -20,7 +20,11 @@ export async function readProjectWork(plan:StatusPlan,project:number,read:Read) 
     const rows=await read(base) as (Order|Timed)[]
     const label=collection==="orders"?"ใบงาน Agent":"งานติดตามตามเวลา"
     const titles=rows.slice(0,10).map(r=>("request" in r?r.request.brief:r.brief)+" · "+stateName(r.state)+" · "+r.id)
-    return {text:[label+" ในโปรเจกต์ "+rows.length+" งาน",...titles].join("\n"),labLink}
+    const counts = new Map<string, number>()
+    for (const row of rows) counts.set(row.state, (counts.get(row.state) || 0) + 1)
+    const summary = [...counts].map(([state, n]) => stateName(state) + " " + n + " งาน").join(" · ")
+    const listed = rows.length > titles.length ? "แสดง " + titles.length + " งานล่าสุด" : ""
+    return {text:[label+" ในโปรเจกต์ "+rows.length+" งาน", summary, listed, ...titles].filter(Boolean).join("\n"),labLink}
   }
   if (collection==="timed"){
     const {row:r}=await read(base+"/"+id) as {row:Timed}

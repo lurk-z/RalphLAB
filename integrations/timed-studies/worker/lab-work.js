@@ -22,6 +22,14 @@ function statedHours(text){
   }
   return {points:results,every};
 }
+function requestsNewHourlyStudy(question){
+  const text=numericWorkText(question).trim();
+  // Only narrow the available tools for a request to start one new observation schedule.
+  if(!statedHours(text).points.length || !/(?:ติดตาม|เฝ้าดู|สังเกต|รอบ(?:วัด|เก็บ)|observations?|monitor(?:ing)?|timepoints?)/i.test(text))return false;
+  const create=/(?:ตั้ง(?:ใบงาน|รอบ|เวลา|ตาราง|การติดตาม)|(?:สร้าง|เปิด|เริ่ม|จัดทำ)(?:ใบงาน|งาน|ตาราง|การติดตาม|ติดตาม|สังเกต)|(?:create|start|schedule|set up)\b.{0,40}(?:study|observation|monitor|timepoint))/i;
+  if(!create.test(text) || /(?:สมมุ?ติ|ตัวอย่าง|ไม่(?:ต้อง|เอา|ให้|อยาก)|ห้าม|ได้(?:ไหม|มั้ย)|ทำยังไง|อย่างไร|หรือไม่|[?？]|\b(?:how|could|would|hypothetical|example|don.t|do not)\b)/i.test(text))return false;
+  return !/(?:ดู|ขอ|อ่าน|เช็ก|เช็ค|ตรวจสอบ)(?:สถานะ|ผล|รายงาน|ใบงานเดิม)|บันทึก(?:ค่า|ผล)|วัด(?:ได้|มาแล้ว)|(?:และ|พร้อม(?:ทั้ง|กับ)?|แล้ว|จากนั้น)\s*(?:สร้าง|เปิด|สั่ง|รัน|ประเมิน|ค้น|อ่าน|บันทึก)|\b(?:status|recorded|measured|and (?:create|run|check|search))\b/i.test(text);
+}
 function validateScheduleIntent(args,b){
   const parts=[...(Array.isArray(b.history)?b.history:[]).filter(m=>m?.role==="user").slice(-4).map(m=>m.text),b.question];
   const text=numericWorkText(parts.join("\n"));

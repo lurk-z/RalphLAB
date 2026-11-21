@@ -18,7 +18,8 @@ const directorTools = [
 const readWorkTool=labTool("read_project_work","แสดงข้อมูลใบงานหรือรอบติดตามจริงในแชต เมื่อขอดูผล ความคืบหน้า หรือรายการงาน ใช้ record_id=null สำหรับรายการ หรือ UUID ของงานในโปรเจกต์",
   {collection:{type:"string",enum:["orders","timed"]},record_id:{type:["string","null"]}});
 const handoffTool=labTool("ask_director_to_run","เมื่อผู้ใช้สั่งให้ทำงานซึ่งต้องใช้เครื่องมือหัวหน้า ให้ส่งคำขอเดิมให้หัวหน้าดำเนินการในแชตนี้ ยังคงขอบเขตงานและข้อมูลของผู้ใช้", {});
-function chatToolsFor(role){
+function chatToolsFor(role,question=""){
+  if(role==="director" && requestsNewHourlyStudy(question))return [labScheduleTool()];
   const qsar=labQsarTools.filter(t=>role==="director" || (["analyst","evaluator"].includes(role) && t.name==="read_chat_qsar"));
   if(role==="director")return [...directorTools,...labWorkTools(),...qsar,readWorkTool];
   return [readWorkTool,handoffTool,...qsar,...(role==="formulator"?[formulaDraftTool]:[])];
@@ -35,7 +36,7 @@ async function planLabChat(env,b,evidence) {
   const key=String(env.OPENAI_API_KEY||"").trim().replace(/^OPENAI_API_KEY\s*=\s*/i,"").replace(/^Bearer\s+/i,"").replace(/^(["'])(.*)\1$/,"$2").trim();
   requireValue(key,503,"แชท OpenAI ยังไม่ได้ตั้งค่าบนเซิร์ฟเวอร์");
   const context=typeof b.context==="string"?b.context.slice(0,4000):"";
-  const available=chatToolsFor(b.role);
+  const available=chatToolsFor(b.role,question);
   let response;
   try {
     response=await fetch("https://api.openai.com/v1/responses",{method:"POST",redirect:"manual",

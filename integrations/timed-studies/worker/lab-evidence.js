@@ -8,9 +8,10 @@ const chatCatalog = {
   measurement: {provider:"NIST",title:"Measurement Process Characterization",url:"https://www.itl.nist.gov/div898/handbook/mpc/mpc.htm",detail:"แยกความแปรปรวนของการวัด ความทำซ้ำได้ และความไม่แน่นอน"},
   identity: {provider:"PubChem",title:"Compound and Substance Records",url:"https://pubchem.ncbi.nlm.nih.gov/docs/compound-vs-substance",detail:"ใช้ CID ตรวจอัตลักษณ์โครงสร้าง สารที่จดทะเบียนไม่ได้ยืนยันความปลอดภัยของสูตร"},
   prediction: {provider:"OECD",title:"(Q)SAR Assessment Framework, Second Edition",url:"https://doi.org/10.1787/bbdac345-en",detail:"พิจารณา endpoint ขอบเขตการใช้โมเดลและข้อจำกัดในการตีความผลทำนายเฉพาะสาร"},
-  gfp: {provider:"RCSB PDB",title:"1EMA · Green fluorescent protein",url:"https://www.rcsb.org/structure/1EMA",detail:"ข้อมูลพิกัดโครงสร้างอ้างอิง GFP สำหรับเทียบและแสดงบนโต๊ะ 3D"},
-  insulin: {provider:"RCSB PDB",title:"1TRZ · Human insulin",url:"https://www.rcsb.org/structure/1TRZ",detail:"พิกัดอ้างอิง human insulin สำหรับกรณีศึกษาโครงสร้าง"},
-  lispro: {provider:"RCSB PDB",title:"1LPH · Insulin lispro",url:"https://www.rcsb.org/structure/1LPH",detail:"พิกัดอ้างอิง insulin lispro สำหรับการจัดแนวและเปรียบเทียบทางเรขาคณิต"},
+  gfp: {provider:"RCSB PDB",title:"1EMA · Green fluorescent protein",url:REF.models.gfp.source_url,detail:"พิกัด GFP ของโมเดลบนโต๊ะโปรตีน"},
+  insulin: {provider:"RCSB PDB",title:"3I40 · Human insulin",url:REF.models.insulin.source_url,detail:"พิกัดอินซูลินของโมเดลเดี่ยวบนโต๊ะโปรตีน"},
+  regularPair: {provider:"RCSB PDB",title:"1TRZ · Regular human insulin",url:REF.comparison.structures.find(s=>s.pdb==="1TRZ").source_url,detail:"พิกัดอินซูลินปกติในกรณีศึกษาเปรียบเทียบกับ lispro"},
+  lispro: {provider:"RCSB PDB",title:"1LPH · Insulin lispro",url:REF.comparison.structures.find(s=>s.pdb==="1LPH").source_url,detail:"พิกัด insulin lispro ในกรณีศึกษาเปรียบเทียบกับอินซูลินปกติ"},
   transfer: {provider:"HSE",title:"Plant modification / Change procedures",url:"https://www.hse.gov.uk/comah/sragtech/techmeasplantmod.htm",detail:"ใช้ทบทวนการเปลี่ยนแปลงและผู้รับผิดชอบก่อนรับบันทึกการผลิตนำร่อง"},
   chemistryTools: {provider:"RDKit",title:"Molecular Descriptors",url:"https://www.rdkit.org/docs/source/rdkit.Chem.Descriptors.html",detail:"คู่มือเครื่องมือโอเพนซอร์สสำหรับอ่านชื่อและชนิดของ molecular descriptors ที่ใช้วิเคราะห์สาร"},
   colorTools: {provider:"Colour",title:"Colour Difference",url:"https://colour.readthedocs.io/en/latest/colour.difference.html",detail:"คู่มือเครื่องมือโอเพนซอร์สสำหรับคำนวณความแตกต่างของค่าสีที่บันทึกไว้"},
@@ -28,8 +29,8 @@ const evidenceSubjects=[
   {match:/ปนเปื้อน|สิ่งแวดล้อม|trace analysis|environmental monitoring|PFAS/i,refs:["planning","measurement","precision"],search:"environmental monitoring analytical measurement uncertainty",terms:/monitoring|uncertaint/i},
   {match:/สี|colour|colorimetr/i,refs:["measurement","precision"],software:"colorimetry",softwareRef:"colorTools",search:"colorimetry measurement repeatability",terms:/colou?r|repeatability/i},
   {match:/สอบเทียบ|ความเที่ยง|การวัด|วัดค่า|ความเป็นกรด|\bpH\b|calibrat|validation|precision/i,refs:["precision","measurement"],search:"analytical method validation measurement uncertainty",terms:/uncertaint|validation|precision/i},
-  {match:/insulin|อินซูลิน|lispro|ลิสโปร/i,refs:["insulin","lispro"]},
-  {match:/\bGFP\b|เรืองแสง/i,refs:["gfp"]},
+  {match:/insulin|อินซูลิน|อินซุลิน|3i40|1trz|1lph|lispro|ลิสโปร/i,insulinDesk:true},
+  {match:/\bGFP\b|1ema|green fluorescent protein|โปรตีนเรืองแสง/i,refs:["gfp"]},
   {match:/scale.up|ขยายขนาด|pilot plant|นำร่อง/i,refs:["transfer","measurement"],search:"process safety management of change documentation",terms:/safety|management of change/i},
   {match:/สังเคราะห์|สังเคราะ|synthesis/i,refs:["planning","measurement"],software:"electronic lab notebook",search:"electronic laboratory notebooks chemistry data provenance",terms:/notebook|provenance/i},
   {match:/ค้นคว้ายา|พัฒนายา|ตำรับยา|drug discovery/i,refs:["assay","stability","precision"],search:"assay data quality reproducibility reference standards",terms:/assay|reproducibility/i},
@@ -109,11 +110,13 @@ async function archiveChatLookup(db,user,project,b,subject,result) {
 }
 async function collectLabEvidence(env,b,scope={}) {
   const question=evidenceText(b.question,4000), asks=evidenceRequest.test(question);
-  if(navigateRequest.test(question)&&!asks)return {sources:[],notices:[]};
+  const deskSubject=/insulin|อินซูลิน|อินซุลิน|lispro|ลิสโปร|3i40|1trz|1lph|1ema|\bGFP\b|green fluorescent protein|โปรตีนเรืองแสง/i.test(question);
+  if(navigateRequest.test(question)&&!asks&&!deskSubject)return {sources:[],notices:[]};
   const recent=(Array.isArray(b.history)?b.history:[]).filter(m=>m?.role==="user").slice(-2).map(m=>evidenceText(m.text,600)).join(" ");
   const matches=evidenceSubjects.filter(s=>s.match.test(question));
   const subjects=matches.length?matches:asks?evidenceSubjects.filter(s=>s.match.test(recent)):[];
-  const interpret=/ทำไม|วิเคราะห์|เปรียบเทียบ|ประเมิน|อธิบาย|ออกแบบ|ความเสี่ยง|เทียบ|ควร|เหตุผล|why|compare|explain|interpret/i.test(question);
+  const interpret=/ทำไม|วิเคราะห์|เปรียบเทียบ|ประเมิน|อธิบาย|ออกแบบ|ความเสี่ยง|เทียบ|ควร|เหตุผล|why|compare|explain|interpret/i.test(question)
+    || deskSubject&&/เปิด|วาง|จัดแนว|ศึกษา|ดู|open|align|inspect|show/i.test(question);
   const intake=/สร้าง|ออกใบงาน|จัดทำ|วางแผน|เปิดใบงาน|เตรียม|ตั้งรอบ|create|plan|start|schedule/i.test(question);
   if(!asks&&(!subjects.length||!(interpret||intake)))return {sources:[],notices:[]};
   const notices=[];
@@ -163,7 +166,13 @@ async function collectLabEvidence(env,b,scope={}) {
     const related=projectSources.filter(s=>subjects.some(t=>t.match.test(s.title+" "+s.detail))||question.toLowerCase().includes(s.title.toLowerCase()));
     projectSources=related;
   }
-  const references=subjects.length ? [...new Set(subjects.flatMap(s=>s.refs))].map(k=>chatCatalog[k]) : roleReferences(b.role);
+  const subjectText=matches.length?question:recent;
+  const references=subjects.length ? [...new Set(subjects.flatMap(s=>{
+    if(!s.insulinDesk)return s.refs;
+    const pair=/1trz|1lph|lispro|ลิสโปร/i.test(subjectText);
+    if(!pair)return ["insulin"];
+    return /3i40/i.test(subjectText)?["insulin","regularPair","lispro"]:["regularPair","lispro"];
+  }))].map(k=>chatCatalog[k]) : roleReferences(b.role);
   const subject=subjects.find(s=>s.search);
   const askOnline=publicResearchRequest.test(question);
   const localOnly=noPublicSearch.test(question);
