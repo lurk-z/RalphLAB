@@ -1,3 +1,4 @@
+// Tam · Messaging demo.
 "use strict";
 
 (() => {
@@ -14,7 +15,7 @@
   function newDemo() {
     const order = makeOrder("WO-001", exampleId, timestamp());
     return { orders: [order], selected: order.id, unread: 1,
-      line: [message("ลองพิมพ์ สรุปวันนี้ หรือ ดูเคส WO-001")],
+      line: [message("พิมพ์ คำสั่ง เพื่อดูเมนู")],
       telegram: [message(approvalNotice(order))] };
   }
 

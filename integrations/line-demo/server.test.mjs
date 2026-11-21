@@ -1,3 +1,4 @@
+// Tam · LINE demo webhook tests.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
@@ -50,4 +51,8 @@ test("signed LINE callbacks use the reply token and serve only the demo fixture"
   time = "2026-11-21T17:01:00Z";
   assert.equal(await post([event("สรุปวันนี้", "reply-4")]), 200);
   assert.match(replies[3].messages[0].text, /2026-11-22[\s\S]*0 รายการ/);
+  await post([event("คำสั่ง", "menu")]);
+  assert.match(replies.at(-1).messages[0].text, /คำสั่งที่ใช้ได้[\s\S]*ดูเคส WO-001[\s\S]*สรุปวันนี้/);
+  await post([event("ดูเคส", "selected")]);
+  assert.equal(replies.at(-1).messages[0].text, replies[1].messages[0].text);
 });

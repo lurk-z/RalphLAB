@@ -165,7 +165,13 @@ export function bridge(settings, http = fetch) {
     }
     if (e.source.userId !== recipient) return;
     if (pairingCommand && command === pairingCommand)
-      return answer("เชื่อม LINE สำหรับใบงานนี้แล้ว พิมพ์ ดูเคส เพื่อทดสอบ");
+      return answer("เชื่อม LINE สำหรับใบงานนี้แล้ว พิมพ์ คำสั่ง เพื่อดูเมนู");
+    if (command === "คำสั่ง") return answer([
+      "คำสั่งที่ใช้ได้",
+      "ดูเคส — ดูรายละเอียดใบงานที่จับคู่",
+      "สรุปวันนี้ — ดูความเคลื่อนไหววันนี้",
+      "เมื่อใบงานพัก ให้ตอบ ต่อ / เพิ่ม / หยุด ตามตัวอย่างในข้อความแจ้งเตือน",
+    ].join("\n"));
     if (command === "ดูเคส" || command === "ดูเคส " + id || command === "สรุปวันนี้") {
       const { row, report } = await api();
       const lines = ["RalphLAB · " + row.brief, "สถานะ: " + stateLabels[row.state],
@@ -183,7 +189,7 @@ export function bridge(settings, http = fetch) {
     }
     if (command.startsWith("ดูเคส ")) return answer("ไม่พบใบงานนี้ในบัญชีที่เชื่อมไว้");
     const m = command.match(/^(ต่อ|หยุด|เพิ่ม)\s+(\d+)\s+(.+)$/u);
-    if (!m) return answer("พิมพ์ ดูเคส หรือ สรุปวันนี้ · เมื่อใบงานพัก ให้ตอบตามตัวอย่างในข้อความแจ้งเตือนพร้อมรุ่นและเหตุผล");
+    if (!m) return answer("พิมพ์ คำสั่ง เพื่อดูเมนู");
     const version = Number(m[2]);
     let note = m[3], hours;
     if (m[1] === "เพิ่ม") {

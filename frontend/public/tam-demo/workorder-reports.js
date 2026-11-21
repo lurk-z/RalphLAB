@@ -1,3 +1,4 @@
+// Tam · LINE commands for the work order demo.
 "use strict";
 
 (() => {
@@ -34,15 +35,19 @@
 
   function report(input, orders, defaultAlias, now = new Date()) {
     const command = input.trim();
-    const match = /^ดูเคส\s+(.+)$/u.exec(command);
-    let reply;
-    if (command === "สรุปวันนี้") reply = dailyReply(orders, now);
-    else if (match) {
-      const key = match[1].trim().toLowerCase();
-      const order = orders.find(o => o.id.toLowerCase() === key || o.alias.toLowerCase() === key);
-      reply = order ? caseReply(order) : "ไม่พบเคส " + match[1].slice(0, 180) + " ในข้อมูลสาธิต";
-    } else reply = "คำสั่งที่ใช้ได้: สรุปวันนี้ หรือ ดูเคส " + defaultAlias;
-    return reply;
+    if (command === "คำสั่ง") return [
+      "คำสั่งที่ใช้ได้",
+      "ดูเคส — ดูรายละเอียดใบงานที่เลือก",
+      "ดูเคส " + defaultAlias + " — ค้นหาด้วยรหัส",
+      "สรุปวันนี้ — ดูความเคลื่อนไหววันนี้",
+    ].join("\n");
+    if (command === "สรุปวันนี้") return dailyReply(orders, now);
+    const match = /^ดูเคส(?:\s+(.+))?$/u.exec(command);
+    if (!match) return "พิมพ์ คำสั่ง เพื่อดูเมนู";
+    const query = match[1] || defaultAlias;
+    const key = query.toLowerCase();
+    const order = orders.find(o => o.id.toLowerCase() === key || o.alias.toLowerCase() === key);
+    return order ? caseReply(order) : "ไม่พบเคส " + query.slice(0, 180) + " ในข้อมูลสาธิต";
   }
 
   const exampleId = "3c50b68c-785c-49ee-9600-a43fb924cc7c";

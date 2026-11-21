@@ -95,6 +95,8 @@ test("in-person pairing restricts pushes, reads and decisions to one private cha
   await s.chat("หยุด 3 ทดสอบ", other);
   await s.chat("ดูเคส", owner, "group");
   assert.equal(s.calls.length, before);
+  await s.chat("คำสั่ง");
+  assert.match(s.calls.at(-1).body.messages[0].text, /คำสั่งที่ใช้ได้[\s\S]*ดูเคส[\s\S]*สรุปวันนี้/);
   for (const command of ["ดูเคส", "ดูเคส sample", "สรุปวันนี้"]) {
     await s.chat(command);
     assert.match(s.calls.at(-1).body.messages[0].text, /Tam ทดสอบติดตามสี/);
