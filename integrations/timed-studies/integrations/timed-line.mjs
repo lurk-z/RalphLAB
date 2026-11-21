@@ -168,12 +168,18 @@ export function bridge(settings, http = fetch) {
       return answer("เชื่อม LINE สำหรับใบงานนี้แล้ว พิมพ์ คำสั่ง เพื่อดูเมนู");
     if (command === "คำสั่ง") return answer([
       "คำสั่งที่ใช้ได้",
-      "ดูเคส — ดูรายละเอียดใบงานที่จับคู่",
+      "ดูเคส — ดูรายการเคสและสถานะ",
+      "ดูเคส ตามด้วยรหัส — เปิดรายละเอียด",
       "สรุปวันนี้ — ดูความเคลื่อนไหววันนี้",
       "เมื่อใบงานพัก ให้ตอบ ต่อ / เพิ่ม / หยุด ตามตัวอย่างในข้อความแจ้งเตือน",
     ].join("\n"));
     if (command === "ดูเคส" || command === "ดูเคส " + id || command === "สรุปวันนี้") {
       const { row, report } = await api();
+      if (command === "ดูเคส") return answer([
+        "เคสที่เชื่อมกับ LINE นี้ 1 รายการ",
+        id + " · " + stateLabels[row.state] + " · " + row.brief,
+        "เปิดรายละเอียดโดยพิมพ์ ดูเคส " + id,
+      ].join("\n"));
       const lines = ["RalphLAB · " + row.brief, "สถานะ: " + stateLabels[row.state],
         "บันทึกแล้ว " + report.count + "/" + report.total + " รอบ"];
       if (command === "สรุปวันนี้") {

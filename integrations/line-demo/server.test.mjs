@@ -53,6 +53,9 @@ test("signed LINE callbacks use the reply token and serve only the demo fixture"
   assert.match(replies[3].messages[0].text, /2026-11-22[\s\S]*0 รายการ/);
   await post([event("คำสั่ง", "menu")]);
   assert.match(replies.at(-1).messages[0].text, /คำสั่งที่ใช้ได้[\s\S]*ดูเคส WO-001[\s\S]*สรุปวันนี้/);
-  await post([event("ดูเคส", "selected")]);
-  assert.equal(replies.at(-1).messages[0].text, replies[1].messages[0].text);
+  await post([event("ดูเคส", "list")]);
+  const list = replies.at(-1).messages[0].text;
+  assert.match(list, /เคสทั้งหมด 1 รายการ\nWO-001 · รอหัวหน้าอนุมัติ/);
+  assert.match(list, /ดูเคส WO-001/);
+  assert.doesNotMatch(list, /คำแนะนำ/);
 });

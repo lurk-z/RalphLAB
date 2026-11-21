@@ -97,7 +97,9 @@ test("in-person pairing restricts pushes, reads and decisions to one private cha
   assert.equal(s.calls.length, before);
   await s.chat("คำสั่ง");
   assert.match(s.calls.at(-1).body.messages[0].text, /คำสั่งที่ใช้ได้[\s\S]*ดูเคส[\s\S]*สรุปวันนี้/);
-  for (const command of ["ดูเคส", "ดูเคส sample", "สรุปวันนี้"]) {
+  await s.chat("ดูเคส");
+  assert.match(s.calls.at(-1).body.messages[0].text, /1 รายการ\nsample · .+ · Tam ทดสอบติดตามสี\n.*ดูเคส sample/);
+  for (const command of ["ดูเคส sample", "สรุปวันนี้"]) {
     await s.chat(command);
     assert.match(s.calls.at(-1).body.messages[0].text, /Tam ทดสอบติดตามสี/);
   }

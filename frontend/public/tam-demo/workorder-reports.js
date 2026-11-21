@@ -37,14 +37,22 @@
     const command = input.trim();
     if (command === "คำสั่ง") return [
       "คำสั่งที่ใช้ได้",
-      "ดูเคส — ดูรายละเอียดใบงานที่เลือก",
+      "ดูเคส — ดูรายการเคสและสถานะ",
       "ดูเคส " + defaultAlias + " — ค้นหาด้วยรหัส",
       "สรุปวันนี้ — ดูความเคลื่อนไหววันนี้",
     ].join("\n");
     if (command === "สรุปวันนี้") return dailyReply(orders, now);
-    const match = /^ดูเคส(?:\s+(.+))?$/u.exec(command);
+    if (command === "ดูเคส") {
+      if (!orders.length) return "ตอนนี้ยังไม่มีเคส";
+      return [
+        "เคสทั้งหมด " + orders.length + " รายการ",
+        ...orders.map(o => o.alias + " · " + states[o.state].label + " · " + o.request.brief),
+        "เปิดรายละเอียด เช่น ดูเคส " + orders[0].alias,
+      ].join("\n");
+    }
+    const match = /^ดูเคส\s+(.+)$/u.exec(command);
     if (!match) return "พิมพ์ คำสั่ง เพื่อดูเมนู";
-    const query = match[1] || defaultAlias;
+    const query = match[1];
     const key = query.toLowerCase();
     const order = orders.find(o => o.id.toLowerCase() === key || o.alias.toLowerCase() === key);
     return order ? caseReply(order) : "ไม่พบเคส " + query.slice(0, 180) + " ในข้อมูลสาธิต";
