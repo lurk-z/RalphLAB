@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import "./timed.css";
+import ResearchShelf from "./ResearchShelf";
 const api = "/api/timed";
 const page = "/lab-room/timed";
 const stamp = (ms: number) =>
@@ -276,20 +277,31 @@ export default function TimedStudies() {
               ))}
             </ol>
             {row.notes.map((n: any, i: number) => (
-              <p key={i}>
-                {stamp(n.at)} · {n.via} ·{" "}
-                {
-                  (
-                    {
-                      issue: "พบปัญหา",
-                      continue: "ติดตามต่อ",
-                      stop: "ยุติ",
-                      followup: "เพิ่มรอบ",
-                    } as any
-                  )[n.action]
-                }{" "}
-                · {n.note}
-              </p>
+              <div key={i}>
+                <p>
+                  {stamp(n.at)} · {n.via} ·{" "}
+                  {
+                    (
+                      {
+                        issue: "พบปัญหา",
+                        continue: "ติดตามต่อ",
+                        stop: "ยุติ",
+                        followup: "เพิ่มรอบ",
+                      } as any
+                    )[n.action]
+                  }{" "}
+                  · {n.note}
+                </p>
+                {n.references?.map((r: any) => (
+                  <p key={r.url}>
+                    หลักฐานที่เลือกไว้ขณะตัดสินใจ ·{" "}
+                    <a href={r.url} target="_blank" rel="noreferrer">
+                      {r.title}
+                    </a>{" "}
+                    · {r.note}
+                  </p>
+                ))}
+              </div>
             ))}
           </section>
           {row.state === "active" && next && now >= next.due && (
@@ -376,6 +388,10 @@ export default function TimedStudies() {
               <button disabled={busy}>ยืนยันคำตัดสิน</button>
             </form>
           )}
+          <ResearchShelf
+            scope={"timed/" + row.id}
+            problem={row.state === "paused" ? row.problem : ""}
+          />
           <details>
             <summary>เชื่อมใบงานกับ LINE ของทีม</summary>
             <p>

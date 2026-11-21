@@ -152,7 +152,7 @@ async function timedDigest(secret) {
     b.toString(16).padStart(2, "0"),
   ).join("");
 }
-async function timedAPI(request, env, url) {
+async function timedAPI(request, env, url, ctx) {
   const db = env.DB.withSession ? env.DB.withSession("first-primary") : env.DB;
   const user = identity(request)?.id;
   const path = url.pathname.split("/").filter(Boolean);
@@ -259,6 +259,16 @@ async function timedAPI(request, env, url) {
   );
   const prev = row.version;
   advanceTimed(row, b, now, relay ? "LINE" : "web");
+  if (["continue", "followup", "stop"].includes(b.action)) {
+    const context = row.metric + " " + row.goal;
+    const topic = researchTopic(row.problem || "", context);
+    row.notes.at(-1).references = await priorEvidence(
+      db,
+      saved.owner,
+      "timed/" + id,
+      topic[1],
+    );
+  }
   const changed = await db
     .prepare(
       "UPDATE timed_studies SET payload=?, version=? WHERE id=? AND version=? AND (?=0 OR pair_hash=?)",
@@ -277,5 +287,17 @@ async function timedAPI(request, env, url) {
     "ข้อมูลเปลี่ยนแล้ว โปรดโหลดใหม่",
     409,
   );
+  if (row.state === "paused" && ctx && !relay) {
+    ctx.waitUntil(
+      researchRun(
+        db,
+        user,
+        "timed/" + id,
+        row.metric + " " + row.goal,
+        { role: "analyst", gap: row.problem },
+        id + "-" + row.version,
+      ),
+    );
+  }
   return json({ row, report: timedReport(row), signal: timedSignal(row, now) });
 }
