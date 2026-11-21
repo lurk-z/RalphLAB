@@ -211,7 +211,7 @@ export default function WorkOrders({
   }
   return (
     <main className="wo">
-      <nav className="flex flex-wrap gap-5"><Link href="/lab-room">← ห้องแล็บ 3D</Link><Link href="/lab-room/protein">โต๊ะโปรตีน 3D</Link></nav>
+      <nav className="flex flex-wrap gap-5"><Link href="/lab-room">← ห้องแล็บ 3D</Link><Link href="/lab-room/protein">โต๊ะโปรตีน 3D</Link><a href="https://ralphlab-protein-desk.surawit2003it.chatgpt.site/lab-room/timed">งานติดตามตามเวลา · Cloud</a></nav>
       <PageHeader title="ใบงาน Agent" className="my-5" />
       {signedIn ? (
         <>
