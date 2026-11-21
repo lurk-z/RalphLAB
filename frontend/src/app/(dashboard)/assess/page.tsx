@@ -2166,7 +2166,7 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
             : "text-slate-600 hover:text-slate-800"}`}
         >
           <SemanticIcon name={icon} className="size-3.5" />
-          <span className="hidden truncate sm:inline">{label}</span>
+          <span className={showLab ? "truncate" : "hidden truncate sm:inline"}>{label}</span>
         </button>
       ))}
     </nav>

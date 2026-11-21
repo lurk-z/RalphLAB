@@ -45,6 +45,7 @@ async def get_current_user(authorization: str | None = Header(default=None)) -> 
             and payload.get("aud") == "ralphguard-backend"
             and int(payload.get("exp", 0)) > int(time.time())
             and isinstance(payload.get("sub"), str)
+            and (not settings.LOGIN_ENABLED or not payload["sub"].startswith("guest:"))
         )
     except (ValueError, TypeError, KeyError, json.JSONDecodeError, binascii.Error, UnicodeDecodeError):
         valid = False

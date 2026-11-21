@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { localLabPreview } from "@/lib/lab-preview"
+import { loginEnabled } from "@/lib/login-mode"
 import { cn } from '@/lib/utils'
 
 export default function Navbar() {
@@ -46,8 +47,8 @@ export default function Navbar() {
           variant="outline"
           className="h-9 rounded-full border-brand/40 bg-transparent px-3 text-xs text-foreground hover:border-brand/70 hover:bg-brand/10 sm:h-10 sm:px-4 sm:text-sm"
         >
-          <a href={localLabPreview ? "/lab-room" : "/login"}>
-            {localLabPreview ? "เปิดห้อง Lab" : "เข้าสู่ระบบ"}
+          <a href={localLabPreview ? "/lab-room" : loginEnabled ? "/login" : "/projects"}>
+            {localLabPreview ? "เปิดห้อง Lab" : loginEnabled ? "เข้าสู่ระบบ" : "เปิด Studio"}
             <ArrowRight className="text-brand" />
           </a>
         </Button>
