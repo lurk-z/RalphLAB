@@ -157,3 +157,83 @@
     display: none;
   }
 }
+
+/* ---- /lab-room shell: one header, room / graph / tools ---------------------------------- */
+.lab-room-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px clamp(12px, 2vw, 20px);
+  border-bottom: 1px solid #cbd5e1;
+  background: #fff;
+}
+.lab-room-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: #334155; }
+.lab-room-icon:hover { background: #f1f5f9; }
+.lab-room-icon svg { width: 16px; height: 16px; }
+.lab-room-header-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.lab-room-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0f172a;
+}
+.lab-room-action svg { width: 16px; height: 16px; color: #0f766e; }
+.lab-room-action:hover { background: #f8fafc; }
+.lab-room-action.is-active { border-color: #0f766e; background: #f0fdfa; color: #115e59; }
+.lab-room-action:focus-visible, .lab-room-chip:focus-visible, .lab-room-icon:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+.lab-room-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  color: #0f172a;
+}
+.lab-room-chip svg { width: 14px; height: 14px; }
+.lab-room-chip:hover { background: #f8fafc; }
+.lab-room-chip[aria-pressed='true'] { border-color: #0f766e; background: #f0fdfa; }
+.lab-room-card {
+  position: absolute;
+  z-index: 22;
+  left: 12px;
+  top: 12px;
+  width: min(26rem, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.97);
+  box-shadow: 0 4px 16px rgb(15 23 42 / 0.1);
+}
+.lab-room-tools {
+  position: absolute;
+  z-index: 40;
+  inset-block: 0;
+  right: 0;
+  width: min(26rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  padding: 16px;
+  border-left: 1px solid #e2e8f0;
+  background: #fff;
+}
+@container (max-width: 600px) {
+  .lab-room-header { flex-wrap: wrap; }
+  .lab-room-header-actions { width: 100%; margin-left: 0; }
+  .lab-room-action { flex: 1 1 0; justify-content: center; padding: 0 6px; }
+}

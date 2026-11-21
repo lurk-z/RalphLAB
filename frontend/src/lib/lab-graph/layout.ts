@@ -59,14 +59,17 @@ export function placeNodes(graph: ProjectGraph, parents: Map<string, string | nu
       const i = Math.max(0, siblings.indexOf(id))
       const n = siblings.length
       let angle: number
+      // A crowded root (an agent with its sources and requests) spreads evenly on two rings.
+      const crowded = !from && n > ROOT_ANGLES.length / 2
       if (graph.nodes[parent].kind === 'formula' && graph.nodes[id].kind === 'formula') angle = 0
+      else if (crowded) angle = -145 + (360 / n) * i
       else if (!from) angle = ROOT_ANGLES[i % ROOT_ANGLES.length]
       else {
         const base = Math.atan2(origin.y - from.y, origin.x - from.x) * 180 / Math.PI
         const spread = Math.min(110, 38 * (n - 1))
         angle = n === 1 ? base : base - spread / 2 + (spread / (n - 1)) * i
       }
-      const distance = distanceFor(graph, parent, id)
+      const distance = distanceFor(graph, parent, id) + (crowded && i % 2 ? 90 : 0)
       positions[id] = free({ x: origin.x + Math.cos(rad(angle)) * distance, y: origin.y + Math.sin(rad(angle)) * distance }, angle, distance, origin)
     })
   }

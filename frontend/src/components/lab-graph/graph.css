@@ -282,7 +282,7 @@
 .lab-graph-legend {
   position: absolute;
   left: 16px;
-  bottom: 68px;
+  bottom: 76px;
   z-index: 5;
   display: flex;
   flex-wrap: wrap;

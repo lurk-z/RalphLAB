@@ -18,7 +18,7 @@ import { D01_FIXTURES, type StudyFixtures } from './fixtures.ts'
 export const AGENT_ORDER: AgentRole[] = ['director', 'formulator', 'analyst', 'researcher', 'evaluator']
 
 export type NodeKind = 'agent' | 'branch' | 'formula' | 'evidence' | 'result' | 'decision' | 'query' | 'document' | 'missing'
-  | 'source' | 'research' | 'passage'
+  | 'source' | 'research' | 'passage' | 'study' | 'stage'
 export type BranchKey = 'received' | 'created' | 'sent' | 'used' | 'results' | 'queries' | 'documents'
 
 export const BRANCH_LABEL: Record<BranchKey, string> = {
@@ -67,6 +67,12 @@ export type GraphNode = {
   origin?: SourceOrigin
   /** Research requests: their status, for the node's look. */
   status?: 'pending' | 'approved' | 'failed' | 'declined' | 'empty'
+  /** The original document: a canonical web URL or an authorised file target from the source service. */
+  url?: string
+  /** Where in the original the passage is (page, row, section). */
+  locator?: string
+  /** A live record's place in its work order (when it has no demo chat message). */
+  recordHref?: string
   role?: AgentRole
   branch?: BranchKey
   /** The agent a branch or agent node belongs to. */
@@ -278,7 +284,7 @@ export function buildProjectGraph(state: LabDemoState, fixtures: StudyFixtures =
       ],
       lists: [
         { title: 'ส่วนผสม', items: fixture.ingredients.map((i) => ({ label: `${i.name} ${i.percent}%`, note: i.role })) },
-        { title: 'หลักฐานที่ใช้', items: evidence.length
+        { title: 'หลักฐานที่ใช้สร้างรุ่นนี้', items: evidence.length
           ? evidence.map((e) => ({ label: nodes[e].label, note: nodes[e].summary, link: e }))
           : [{ label: fixture.evidence.length ? 'ยังไม่มีหลักฐานที่บันทึก' : 'ไม่มี (รุ่นตั้งต้นจากใบงาน)' }] },
       ],
@@ -413,7 +419,6 @@ export function buildProjectGraph(state: LabDemoState, fixtures: StudyFixtures =
       const id = sourceId(source.sourceId)
       const label = source.sourceId.startsWith('BASE-') ? source.title : `${source.sourceId} · ${source.title}`
       add({ id, kind: 'source', origin: source.origin, label, demo: true, heading: label,
-        sublabel: source.origin === 'project' ? ENDPOINT_TH[source.endpoint] : undefined,
         facts: [
           { label: 'ประเภท', value: ORIGIN_TH[source.origin] },
           { label: 'ประเด็น', value: ENDPOINT_TH[source.endpoint] },
@@ -525,7 +530,7 @@ export function buildProjectGraph(state: LabDemoState, fixtures: StudyFixtures =
       if (f.kind !== 'used' && f.kind !== 'insufficient') continue
       const formula = nodes[formulaNodeId(p, x, f.versionId)]
       if (!formula) continue
-      if (f.kind === 'used') formula.facts.splice(formula.facts.length - 1, 0, { label: 'หลักฐานที่ใช้', value: `${f.sourceId} · ${ROLE_EN[f.by]}`, link: sourceId(f.sourceId) })
+      if (f.kind === 'used') formula.facts.splice(formula.facts.length - 1, 0, { label: `หลักฐาน${ENDPOINT_TH[state.sources[f.sourceId]?.endpoint ?? 'skin']}`, value: `${f.sourceId} · เลือกโดย ${ROLE_EN[f.by]}`, link: sourceId(f.sourceId) })
       else formula.facts.splice(formula.facts.length - 1, 0, { label: ENDPOINT_TH[f.endpoint], value: `ข้อมูลไม่พอ · ${f.reason}` })
     }
   }

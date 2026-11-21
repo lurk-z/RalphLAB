@@ -95,10 +95,8 @@ import {
   resolveManualSubstanceRegistryMatch,
   searchManualSubstanceSuggestions,
 } from "@/lib/manual-substance";
-import { chatAssessment } from "@/lib/lab-station/assessment";
 import type { AgentRole } from "@/lib/lab-demo/events";
-import { AGENT_ORDER, type MessageRef } from "@/lib/lab-graph/model";
-import { openLabAtMessage, saveLabScreen, viewKey } from "@/lib/lab-graph/view-memory";
+import { AGENT_ORDER } from "@/lib/lab-graph/model";
 import { parseProjectRouteId } from "@/lib/project-routing";
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import {
@@ -134,16 +132,6 @@ const FaceView = dynamic(
 
 // ── Inflammation trend chart (client-only, recharts) ──
 const TrendChart = dynamic(() => import("@/components/charts/TrendChart"), { ssr: false });
-
-const ProjectGraphView = dynamic(() => import("@/components/lab-graph/ProjectGraphView"), {
-  ssr: false,
-  loading: () => <div role="status" className="grid h-dvh place-items-center bg-background text-sm text-slate-600">กำลังโหลดกราฟ…</div>,
-});
-
-const LabView = dynamic(() => import("@/components/three/skincare-lab/LabView"), {
-  ssr: false,
-  loading: () => <div role="status" className="grid place-items-center bg-slate-200 text-sm text-slate-600">กำลังโหลดห้องแล็บ…</div>,
-});
 
 type Mode = WorkspaceMode;
 const tabMode = (tab: string | null | undefined): Mode | undefined =>
@@ -281,6 +269,21 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
   const [mode, setMode] = useState<Mode>(requestedMode ?? "assess");
   const [graphAgent, setGraphAgent] = useState<AgentRole | null>(agentRole(searchParams.agent));
   const showLab = mode === "lab";
+  // Studio's Lab and Graph are views of /lab-room: one room, one graph, same project.
+  const roomHref = (view: "room" | "graph", agent: AgentRole | null) => {
+    const query = new URLSearchParams();
+    if (view === "graph") query.set("view", "graph");
+    const pid = new URLSearchParams(window.location.search).get("projectId");
+    if (pid) query.set("projectId", pid);
+    if (agent) query.set("agent", agent);
+    const text = query.toString();
+    return text ? `/lab-room?${text}` : "/lab-room";
+  };
+  // A bookmarked `?tab=lab|graph` (or the assistant's “go to Graph”) opens the room instead.
+  useEffect(() => {
+    if (mode === "lab" || mode === "nodes") window.location.replace(roomHref(mode === "nodes" ? "graph" : "room", graphAgent));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
   const [qsarEnabled, setQsarEnabled] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
@@ -565,7 +568,8 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
           setRegion(savedWorkspace.region);
           setDayIdx(savedWorkspace.dayIdx);
           const tab = new URLSearchParams(window.location.search).get("tab");
-          if (!tabMode(tab)) setMode(savedWorkspace.mode);
+          // Lab and Graph live in /lab-room now; a saved Studio view reopens Assessment.
+          if (!tabMode(tab)) setMode("assess");
           // Formula details now live inside each card, so restore the active
           // formula as the initially expanded card instead of opening a
           // separate formulation panel over the model.
@@ -2153,12 +2157,16 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
           aria-pressed={mode === value}
           title={label}
           onClick={() => {
+            // Lab and Graph are the room's views: move there, keeping this project (Back returns here).
+            if (value !== "assess") {
+              window.location.assign(roomHref(value === "nodes" ? "graph" : "room", value === "nodes" ? graphAgent : null));
+              return;
+            }
             changePrimaryNavigation("assessment");
             setMode(value);
             const url = new URL(window.location.href);
-            url.searchParams.set("tab", value === "nodes" ? "graph" : value);
-            if (value !== "nodes") url.searchParams.delete("agent");
-            else if (graphAgent) url.searchParams.set("agent", graphAgent);
+            url.searchParams.set("tab", value);
+            url.searchParams.delete("agent");
             window.history.replaceState(window.history.state, "", url);
           }}
           className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${mode === value
@@ -2172,51 +2180,6 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
     </nav>
   );
 
-  const studioUrl = (tab: string, agent: AgentRole | null) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("tab", tab);
-    if (agent) url.searchParams.set("agent", agent);
-    else url.searchParams.delete("agent");
-    window.history.replaceState(window.history.state, "", url);
-  };
-  // Graph and Lab only change views; neither writes formulas, assessments or drafts.
-  const openGraph = (agent: AgentRole) => {
-    setGraphAgent(agent);
-    setMode("nodes");
-    studioUrl("graph", agent);
-  };
-  const openLab = ({ message, agent }: { message?: MessageRef; agent?: AgentRole }) => {
-    const key = viewKey(projectId);
-    if (message) openLabAtMessage(key, message);
-    else if (agent) saveLabScreen(key, { agent, screen: { kind: "private" } });
-    setMode("lab");
-    studioUrl("lab", null);
-  };
-
-  if (mode === "nodes" && activeNavigationItem === "assessment") {
-    return <ProjectGraphView projectId={projectId} tabs={workspaceTabs} backHref={projectId ? "/projects" : "/"}
-      requestedAgent={graphAgent}
-      onAgentChange={(agent) => {
-        setGraphAgent(agent);
-        studioUrl("graph", agent);
-      }}
-      onOpenLab={openLab} />;
-  }
-
-  if (showLab && activeNavigationItem === "assessment") {
-    return <div className="app-light grid h-dvh grid-rows-[3.5rem_minmax(0,1fr)] bg-background text-foreground">
-      <header className="relative flex items-center border-b bg-card px-4">
-        <a href={projectId ? "/projects" : "/"} className="grid size-9 place-items-center rounded-lg hover:bg-muted" aria-label="กลับหน้าหลัก"><ArrowLeft className="size-4" /></a>
-        {workspaceTabs}
-      </header>
-      <section aria-label="ห้องแล็บ 3D" className="relative min-h-0 overflow-hidden">
-        <LabView embedded projectId={projectId} onOpenGraph={openGraph} formula={activeFormula ? {
-          id: activeFormula.id, name: productName, items: activeFormula.items,
-          assessment: chatAssessment(assessment, productName),
-        } : undefined} />
-      </section>
-    </div>;
-  }
   return (
     <div
       ref={workspaceShellRef}

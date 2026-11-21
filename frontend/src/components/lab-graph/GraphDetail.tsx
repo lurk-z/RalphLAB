@@ -1,12 +1,33 @@
 'use client'
 
-import { ExternalLink, MessageCircle, Target, X } from 'lucide-react'
+import { Download, ExternalLink, MessageCircle, MessageSquareText, Target, X } from 'lucide-react'
 import type { GraphNode, MessageRef } from '@/lib/lab-graph/model'
+
+/** A generated reference card: a separate download, never presented as the original document. */
+function downloadCard(node: GraphNode) {
+  const lines = [
+    `# ${node.heading}`,
+    node.demo ? '\n> ข้อมูลจำลอง' : '',
+    '',
+    ...node.facts.map((f) => `- ${f.label}: ${f.value}`),
+    node.locator ? `- ตำแหน่งในต้นฉบับ: ${node.locator}` : '',
+    `- ต้นฉบับ: ${node.url ?? 'ยังไม่มีลิงก์ต้นฉบับ'}`,
+    node.summary ? `\n${node.summary}` : '',
+    '',
+    '_การ์ดนี้สร้างจาก RalphLab ไม่ใช่เอกสารต้นฉบับ_',
+  ].filter((line) => line !== '')
+  const url = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/markdown;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${node.label.replace(/[^\p{L}\p{N}-]+/gu, '-').slice(0, 60) || 'reference'}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const KIND_LABEL: Record<GraphNode['kind'], string> = {
   agent: 'Agent', branch: 'สาขา', formula: 'สูตร', evidence: 'หลักฐาน', result: 'ผลคัดกรอง',
   decision: 'ข้อสรุป', query: 'คำค้น', document: 'เอกสารต้นทาง', missing: 'ยังไม่มีข้อมูล',
-  source: 'รายละเอียดแหล่งข้อมูล', research: 'คำขอค้นเอกสาร', passage: 'ข้อความหลักฐาน',
+  source: 'รายละเอียดแหล่งข้อมูล', research: 'คำขอค้นเอกสาร', passage: 'ข้อความหลักฐาน', study: 'ใบงาน', stage: 'ขั้นงาน',
 }
 
 export default function GraphDetail({ node, isFocus, onClose, onSelect, onFocusAgent, onOpenMessage, onOpenChat }: {
@@ -48,9 +69,18 @@ export default function GraphDetail({ node, isFocus, onClose, onSelect, onFocusA
             </li>)}
           </ul>
         </div>)}
+        {node.locator && <p className="mt-4 text-sm text-slate-700"><span className="text-slate-500">ตำแหน่งในต้นฉบับ · </span>{node.locator}</p>}
         <div className="mt-6 flex flex-wrap gap-2">
           {node.message && <button type="button" onClick={() => onOpenMessage(node.message!)} className="lab-graph-action">
-            <ExternalLink aria-hidden="true" />เปิดข้อความต้นทาง</button>}
+            <MessageSquareText aria-hidden="true" />ดูข้อความใน Lab</button>}
+          {!node.message && node.recordHref && <a href={node.recordHref} className="lab-graph-action">
+            <MessageSquareText aria-hidden="true" />ดูข้อความใน Lab</a>}
+          {/* The original document is a separate action from the recorded message. */}
+          {node.url ? <a href={node.url} target="_blank" rel="noopener noreferrer" className="lab-graph-action">
+            <ExternalLink aria-hidden="true" />เปิดเอกสารต้นฉบับ</a>
+            : (node.kind === 'source' || node.kind === 'document') && <span className="inline-flex min-h-9 items-center text-sm text-slate-500" data-no-original>ยังไม่มีลิงก์ต้นฉบับ</span>}
+          {(node.kind === 'source' || node.kind === 'passage') && <button type="button" onClick={() => downloadCard(node)} className="lab-graph-action">
+            <Download aria-hidden="true" />ดาวน์โหลดการ์ดอ้างอิง</button>}
           {node.kind === 'agent' && !isFocus && <button type="button" onClick={() => onFocusAgent(node)} className="lab-graph-action">
             <Target aria-hidden="true" />โฟกัสที่ Agent นี้</button>}
           {node.kind === 'agent' && <button type="button" onClick={() => onOpenChat(node)} className="lab-graph-action">

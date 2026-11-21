@@ -35,6 +35,8 @@ type Props = {
   insulinComparison?: InsulinComparisonTableState | null
   proteinWork?: ProteinWork | null
   onProteinPhase?: (id: string, phase: ProteinPhase) => void
+  /** Stop drawing while another full view (the graph) covers the room; the scene stays mounted. */
+  paused?: boolean
 }
 
 function Lights({ room }: { room: LabRoom }) {
@@ -235,6 +237,7 @@ export default function LabRoomCanvas(props: Props) {
         outputColorSpace: THREE.SRGBColorSpace,
       }}
       style={{ position: 'absolute', inset: 0, touchAction: 'none' }}
+      frameloop={props.paused ? 'never' : 'always'}
     >
       <PerformanceMonitor
         onDecline={() => setDpr(1)}

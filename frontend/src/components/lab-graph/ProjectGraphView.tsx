@@ -3,18 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
-import { ArrowLeft, LoaderCircle, RotateCcw } from 'lucide-react'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { useAgentDemo } from '@/components/three/skincare-lab/chat/useAgentDemo'
 import type { AgentRole } from '@/lib/lab-demo/events'
 import { ROLE_EN } from '@/lib/lab-demo/roles'
 import {
-  AGENT_ORDER, agentNodeId, buildProjectGraph, emptyExploration, focusAgent, pathTo, toggleExpanded, visibleNodes,
-  type Exploration, type GraphNode, type MessageRef,
+  AGENT_ORDER, agentNodeId, emptyExploration, focusAgent, pathTo, toggleExpanded, visibleNodes,
+  type Exploration, type GraphNode, type MessageRef, type ProjectGraph,
 } from '@/lib/lab-graph/model'
 import { placeNodes } from '@/lib/lab-graph/layout'
-import { loadGraphView, saveGraphView, viewKey } from '@/lib/lab-graph/view-memory'
+import { loadGraphView, saveGraphView } from '@/lib/lab-graph/view-memory'
 import GraphDetail from './GraphDetail'
 import type { CameraRequest } from './GraphCanvas'
 import './graph.css'
@@ -37,27 +36,33 @@ function useReducedMotion() {
 }
 
 /**
- * One read-only graph per project. Opening, expanding or closing it changes only this view's
- * memory; it never writes formulas, assessments or project drafts.
+ * The read-only research graph of one work context, full width inside the room. It draws the
+ * records it is given (a demo run, a live work order, a timed study); opening, expanding or
+ * dragging changes only this view's memory, keyed by viewer and context. It never writes
+ * formulas, assessments, drafts, approvals or searches.
  */
-export default function ProjectGraphView({ projectId, tabs, backHref, requestedAgent, onAgentChange, onOpenLab }: {
-  projectId: number | null
-  tabs: ReactNode
-  backHref: string
+export default function ProjectGraphView({ graph, memoryKey, title, demo, requestedAgent, onAgentChange, onOpenLab, onBack, notice }: {
+  graph: ProjectGraph
+  /** Viewer + work context: graph memory never crosses studies or people. */
+  memoryKey: string
+  title: string
+  /** The records are a simulation and are labelled so. */
+  demo: boolean
   requestedAgent: AgentRole | null
   onAgentChange: (role: AgentRole) => void
   onOpenLab: (target: { message?: MessageRef; agent?: AgentRole }) => void
+  /** “กลับห้องแล็บ”: back to the room context the viewer came from. */
+  onBack: () => void
+  /** An explanation over the canvas (empty data and what can be done about it). */
+  notice?: ReactNode
 }) {
-  const demo = useAgentDemo(projectId)
-  const graph = useMemo(() => buildProjectGraph(demo.state), [demo.state])
   const latestGraph = useRef(graph)
   latestGraph.current = graph
-  const key = viewKey(projectId)
+  const key = memoryKey
   const memory = useRef(loadGraphView(key))
   const [exploration, setExploration] = useState<Exploration>(memory.current.exploration)
   const [camera, setCamera] = useState<CameraRequest | null>(null)
   const [panelOpen, setPanelOpen] = useState(true)
-  const [recording, setRecording] = useState(false)
   const nonce = useRef(0)
   const reducedMotion = useReducedMotion()
   const mobile = useIsMobile()
@@ -135,17 +140,6 @@ export default function ProjectGraphView({ projectId, tabs, backHref, requestedA
   }
   const focusNode = (node: GraphNode) => node.role && chooseAgent(node.role)
 
-  async function record() {
-    setRecording(true)
-    try {
-      await demo.recordStudy()
-    } finally {
-      setRecording(false)
-    }
-    // Open the focused agent's branches from the newly recorded events.
-    window.setTimeout(() => { if (focusRole) focus(focusRole) })
-  }
-
   // Back to the automatic layout, dropping every dragged position.
   function resetView() {
     memory.current.positions = {}
@@ -173,20 +167,16 @@ export default function ProjectGraphView({ projectId, tabs, backHref, requestedA
     onOpenMessage={(message) => onOpenLab({ message })} onOpenChat={(node) => onOpenLab({ agent: node.role })} />
 
   return (
-    <div className="app-light lab-graph-shell grid h-dvh grid-rows-[3.5rem_auto_minmax(0,1fr)] bg-background text-foreground">
-      <header className="relative flex items-center border-b bg-card px-4">
-        <a href={backHref} className="grid size-9 place-items-center rounded-lg hover:bg-muted" aria-label="กลับหน้าหลัก"><ArrowLeft className="size-4" /></a>
-        {tabs}
-        <div className="ml-auto hidden lg:block">{switcher}</div>
-      </header>
-      <div className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-card px-4 py-2 text-sm">
-        <nav aria-label="ตำแหน่ง" className="flex items-center gap-2 text-base">
-          <span className="text-slate-500">{graph.experimentId}</span><span aria-hidden="true" className="text-slate-400">/</span>
+    <div className="app-light lab-graph-shell grid h-full grid-rows-[auto_minmax(0,1fr)] bg-background text-foreground">
+      <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-card px-4 py-2 text-sm">
+        <button type="button" onClick={onBack} className="lab-graph-action"><ArrowLeft aria-hidden="true" />กลับห้องแล็บ</button>
+        <nav aria-label="ตำแหน่ง" className="flex min-w-0 items-center gap-2 text-base">
+          <span className="truncate text-slate-500">{title}</span><span aria-hidden="true" className="text-slate-400">/</span>
           <span className="font-semibold text-slate-900">กราฟการทดลอง</span>
         </nav>
-        {graph.recordedHandoffs > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">ข้อมูลจำลอง</span>}
+        {demo && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">ข้อมูลจำลอง</span>}
         <div className="ml-auto flex items-center gap-2">
-          <div className="lg:hidden">{switcher}</div>
+          {switcher}
           <button type="button" onClick={resetView} className="lab-graph-action" title="ล้างสาขาที่เปิดไว้"><RotateCcw aria-hidden="true" />จัดมุมมองใหม่</button>
         </div>
       </div>
@@ -199,15 +189,7 @@ export default function ProjectGraphView({ projectId, tabs, backHref, requestedA
             <li><span aria-hidden="true" data-origin="project" />ค้นเพิ่มในโครงการ</li>
             <li><span aria-hidden="true" data-origin="hypothesis" />สมมติฐาน</li>
           </ul>}
-          {graph.recordedHandoffs === 0 && demo.ready && (
-            <div className="lab-graph-empty" role="status">
-              <p className="font-semibold text-slate-900">ยังไม่มีเหตุการณ์ของ {graph.experimentId} ในโครงการนี้</p>
-              <p className="mt-1 text-slate-600">สั่งงาน Agent ในแท็บ Lab แล้วกราฟจะเติบโตตามเหตุการณ์จริง หรือบันทึกบทเดโมทั้งรอบทันที</p>
-              <button type="button" onClick={record} disabled={recording} className="lab-graph-action mt-3 bg-teal-700 text-white hover:bg-teal-800">
-                {recording && <LoaderCircle aria-hidden="true" className="animate-spin" />}บันทึกบทเดโม {graph.experimentId} · ข้อมูลจำลอง
-              </button>
-            </div>
-          )}
+          {notice && <div className="lab-graph-empty" role="status">{notice}</div>}
         </div>
         {!mobile && detail && panelOpen && <aside className="w-[380px] shrink-0 border-l bg-white">{detail}</aside>}
       </div>
