@@ -20,11 +20,16 @@ function initials(name?: string | null) {
   return name.trim().slice(0, 2).toUpperCase();
 }
 
-/** Signed-in user: avatar button with a menu (name, email, sign out). Renders nothing when signed out. */
 export function UserMenu() {
-  const { data } = useSession();
+  const { data, status } = useSession();
   const user = data?.user;
-  if (!user) return null;
+  if (!user) {
+    return status === "unauthenticated" ? (
+      <a href="/login" className="text-sm text-muted-foreground hover:underline">
+        เข้าสู่ระบบ
+      </a>
+    ) : null;
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -45,7 +50,7 @@ export function UserMenu() {
           {user.email && <div className="truncate text-xs text-muted-foreground">{user.email}</div>}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void signOut({ callbackUrl: "/login" })}>
+        <DropdownMenuItem onSelect={() => void signOut({ callbackUrl: "/projects" })}>
           <LogOut />
           ออกจากระบบ
         </DropdownMenuItem>

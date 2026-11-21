@@ -40,14 +40,13 @@ export default function Navbar() {
           </span>
         </a>
 
-        {/* Authentication entry point */}
         <Button
           asChild
           variant="outline"
           className="h-9 rounded-full border-brand/40 bg-transparent px-3 text-xs text-foreground hover:border-brand/70 hover:bg-brand/10 sm:h-10 sm:px-4 sm:text-sm"
         >
-          <a href={localLabPreview ? "/lab-room" : "/login"}>
-            {localLabPreview ? "เปิดห้อง Lab" : "เข้าสู่ระบบ"}
+          <a href={localLabPreview ? "/lab-room" : "/projects"}>
+            {localLabPreview ? "เปิดห้อง Lab" : "เปิด Studio"}
             <ArrowRight className="text-brand" />
           </a>
         </Button>

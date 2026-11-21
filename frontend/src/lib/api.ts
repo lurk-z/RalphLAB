@@ -34,7 +34,7 @@ export function apiErrorMessage(cause: unknown, fallback: string): string {
     return `${fallback}: เซิร์ฟเวอร์ไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง`;
   }
   if (cause instanceof ApiError) {
-    if (cause.status === 401) return `${fallback}: เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่`;
+    if (cause.status === 401) return `${fallback}: เซสชันหมดอายุ กรุณารีเฟรชหน้าแล้วลองอีกครั้ง`;
     if (cause.status === 503 && cause.detail?.includes("AUTH_SECRET")) {
       return `${fallback}: ระบบยืนยันตัวตนของเซิร์ฟเวอร์ยังตั้งค่าไม่ครบ`;
     }
@@ -255,6 +255,38 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
   }
 }
 
+let guestTokenRequest: Promise<string> | undefined;
+
+async function backendTokenFor(path: string): Promise<string | undefined> {
+  const needsOwner =
+    path.startsWith("/api/projects/") ||
+    (path.startsWith("/api/assessments/") && path !== "/api/assessments/availability");
+  if (!needsOwner) return undefined;
+
+  const session = await getSession();
+  if (session?.backendToken) return session.backendToken;
+
+  guestTokenRequest ??= getGuestToken().finally(() => {
+    guestTokenRequest = undefined;
+  });
+  return guestTokenRequest;
+}
+
+async function getGuestToken(): Promise<string> {
+  // Serialize first use across tabs so they establish one browser identity.
+  const locks = navigator.locks;
+  return locks ? await locks.request("ralphguard-guest", requestGuestToken) : requestGuestToken();
+}
+
+async function requestGuestToken(): Promise<string> {
+  const response = await fetch("/api/guest", { method: "POST", cache: "no-store" });
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText, "ไม่สามารถเปิดเซสชันผู้เยี่ยมชมได้");
+  }
+  const { backendToken } = (await response.json()) as { backendToken: string };
+  return backendToken;
+}
+
 async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   const ctrl = new AbortController();
   const externalSignal = init?.signal;
@@ -267,13 +299,13 @@ async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000):
     ctrl.abort();
   }, timeoutMs);
   try {
-    const session = await getSession();
+    const backendToken = await backendTokenFor(path);
     const res = await fetch(`${API}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         "Content-Type": "application/json",
-        ...(session?.backendToken ? { Authorization: `Bearer ${session.backendToken}` } : {}),
+        ...(backendToken ? { Authorization: `Bearer ${backendToken}` } : {}),
         ...(init?.headers ?? {}),
       },
     });

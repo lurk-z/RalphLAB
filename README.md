@@ -12,7 +12,7 @@ cd RalphLAB
 Copy-Item .env.example .env
 ```
 
-เปิด `.env` แล้วตั้ง `AUTH_SECRET` และ `NEXTAUTH_SECRET` เป็นค่าสุ่มยาว **ค่าเดียวกัน** สำหรับเครื่องของคุณ ตั้ง `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` ของ OAuth client สำหรับพัฒนาที่อนุญาต callback `http://localhost:3000/api/auth/callback/google` การล็อกอินเพื่อเปิดโปรเจกต์ต้องใช้ค่าเหล่านี้ ตั้ง `GROQ_API_KEY` หากต้องการใช้ผู้ช่วยแชต
+เปิด `.env` แล้วตั้ง `AUTH_SECRET` และ `NEXTAUTH_SECRET` เป็นค่าสุ่มยาว **ค่าเดียวกัน** สำหรับเครื่องของคุณ หากต้องการเปิดให้ล็อกอินด้วย Google ให้ตั้ง `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` ของ OAuth client ที่อนุญาต callback `http://localhost:3000/api/auth/callback/google` ตั้ง `GROQ_API_KEY` หากต้องการใช้ผู้ช่วยแชต
 
 ```powershell
 # Next.js อ่านค่าจาก frontend/.env.local ซึ่ง Git ไม่ติดตาม
@@ -23,7 +23,7 @@ npm ci
 npm run dev
 ```
 
-เปิดเว็บที่ `http://localhost:3000` และ API ที่ `http://localhost:8000/docs` สำหรับงานหน้า landing page สามารถเริ่มจาก `cd frontend`, `npm ci` และ `npm run dev` ได้ทันที ส่วน Studio ใช้ backend และการล็อกอิน
+เปิดเว็บที่ `http://localhost:3000` และ API ที่ `http://localhost:8000/docs` สำหรับงานหน้า landing page สามารถเริ่มจาก `cd frontend`, `npm ci` และ `npm run dev` ได้ทันที ส่วน Studio ใช้ backend และเปิดได้โดยไม่ต้องล็อกอิน โปรเจกต์ของผู้เยี่ยมชมผูกกับคุกกี้ในเบราว์เซอร์เดิม
 
 ## การทำงานร่วมกัน
 
