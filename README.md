@@ -25,7 +25,7 @@ Copy-Item .env.example .env
 เปิด `.env` ที่รากโปรเจกต์ แล้วตั้ง `AUTH_SECRET` และ `NEXTAUTH_SECRET` เป็นค่าสุ่มยาว **ค่าเดียวกัน** สำหรับลงนามเซสชันทั้งสองโหมด
 
 - `LOGIN_ENABLED=false` เปิด Studio และ Lab ทันที โปรเจกต์ผู้เยี่ยมชมผูกกับคุกกี้ของเบราว์เซอร์นั้น
-- `LOGIN_ENABLED=true` บังคับล็อกอินด้วย Google และเปิดโปรเจกต์ของบัญชีนั้น ตั้ง `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` โดยอนุญาต callback `http://localhost:3000/api/auth/callback/google`
+- `LOGIN_ENABLED=true` เป็นค่าเริ่มต้น เข้าสู่ระบบด้วย Google แล้วสร้างหรือเลือกโปรเจกต์เพื่อเข้าห้องแล็ป ตั้ง `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` ตาม [คู่มือตั้งค่าสำหรับแอปและ Cloud](docs/GOOGLE_LOGIN_SETUP.md)
 
 หลังเปลี่ยนโหมด ให้เริ่ม Next.js ใหม่และรัน `docker compose up -d backend` หากใช้ production ให้ตั้ง `LOGIN_ENABLED` ให้ตรงกันทั้ง frontend และ backend แล้ว build frontend ใหม่ ระบบที่ไม่ได้กำหนดค่านี้จะใช้โหมดล็อกอิน ตั้ง `GROQ_API_KEY` หากต้องการใช้ผู้ช่วยแชต
 

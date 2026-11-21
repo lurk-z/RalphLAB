@@ -18,10 +18,12 @@ const openStudy = (row: Study) =>
   `/lab-room?project=${row.project_id}&order=${row.id}`;
 
 export function DeskLauncher({
+  projectId,
   signedIn,
   localLogin,
   callbackUrl = "/lab-room?table=protein",
 }: {
+  projectId?: number | null;
   signedIn: boolean;
   localLogin: boolean;
   callbackUrl?: string;
@@ -38,7 +40,7 @@ export function DeskLauncher({
     setError("");
     try {
       const projects = await http<Project[]>("/api/lab/projects");
-      let id = projects.find((p) => p.owner && p.name === exampleProject)?.id;
+      let id = projectId ?? projects.find((p) => p.owner && p.name === exampleProject)?.id;
       if (!id) id = (await api.createProject(exampleProject)).id;
       const row = await http<Study>(`/api/lab/projects/${id}/studies`, {
         method: "POST",

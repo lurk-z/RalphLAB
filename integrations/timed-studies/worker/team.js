@@ -39,9 +39,10 @@ const labTeam = {
     task: "เทียบค่าที่วัดจริงกับค่าตั้งต้น รายงานหน่วย แหล่งที่มา และรอบที่ยังไม่มีผล",
     tool: "compare_observations",
     label: "เทียบค่าที่วัดตามเวลา",
-    read: (row) => ({
+    read: async (row, db, user) => ({
       metric: row.metric,
       ...timedReport(row),
+      qsar_screening: await latestQsarForStudy(db,user,row.id),
       readings: row.rounds.map((r) => ({
         hour: r.hour,
         value: r.result?.value ?? null,
