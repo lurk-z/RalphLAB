@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tam · RalphLAB | ใบงานและการแจ้งเตือน</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="demo.js" defer></script>
+</head>
+<body>
+  <header class="bar"><div class="brand"><strong>Tam</strong><span class="divider"></span>RalphLAB</div><span class="mode"><i></i> โหมดสาธิต</span></header>
+  <main>
+    <div class="intro"><h1>ใบงานและการแจ้งเตือน</h1><p>ทดลองดูใบงานผ่าน LINE และรับแจ้งเตือนผ่าน Telegram ด้วยข้อมูลจำลองในเบราว์เซอร์</p></div>
+    <div class="workspace">
+      <section aria-labelledby="orders-heading" class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">RalphLAB</p><h2 id="orders-heading">โต๊ะหัวหน้าโครงการ</h2></div></div>
+        <div class="panel-body">
+          <button id="create" class="primary" type="button">＋ สร้างใบงานตัวอย่าง</button>
+          <label for="order">เลือกใบงาน</label>
+          <select id="order"></select>
+          <article id="detail" aria-live="polite"></article>
+        </div>
+      </section>
+      <section aria-labelledby="messages-heading" class="panel chat">
+        <div class="panel-heading"><div><p class="eyebrow">LINE OA / Telegram</p><h2 id="messages-heading">กล่องข้อความจำลอง</h2></div></div>
+        <div class="channels" role="group" aria-label="ช่องทางแชต">
+          <button type="button" id="line" aria-pressed="true">LINE OA</button>
+          <button type="button" id="telegram" aria-pressed="false">Telegram <span id="unread"></span></button>
+        </div>
+        <div id="feed" role="log" aria-label="ข้อความ" aria-live="polite" tabindex="0"></div>
+        <div id="line-controls">
+          <div class="quick"><button id="today" type="button">สรุปวันนี้</button><button id="lookup" type="button">ดูเคสที่เลือก</button></div>
+          <form id="compose"><input id="command" aria-label="คำสั่ง LINE" placeholder="พิมพ์คำสั่ง LINE…" maxlength="180" autocomplete="off" required><button class="send" type="submit">ส่ง</button></form>
+        </div>
+        <p id="telegram-note" class="notice" hidden>ห้องทีมรับแจ้งเตือนเมื่อมีใบงานรออนุมัติ</p>
+      </section>
+    </div>
+    <footer><span>ข้อมูลสาธิต · เก็บเฉพาะในเบราว์เซอร์นี้</span><button id="reset" type="button">เริ่มเดโมใหม่</button></footer>
+    <p id="storage-note" class="notice" role="status" hidden>เบราว์เซอร์ปิดการเก็บข้อมูล เดโมนี้ใช้ได้จนกว่าจะปิดหรือรีเฟรชหน้า</p>
+  </main>
+</body>
+</html>

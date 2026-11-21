@@ -38,3 +38,13 @@ npm run dev
 เมื่อต้องการทดสอบ QSAR ในเครื่อง ให้เปลี่ยนค่าใน `.env` เป็น `ASSESSMENT_EXECUTION_MODE=queue` แล้วใช้ `docker compose --profile qsar up --build -d` และรีเฟรช Studio เมื่อทดสอบเสร็จใช้ `docker compose --profile qsar stop worker redis` ตั้งค่ากลับเป็น `disabled` แล้ว `docker compose up -d` เพื่ออัปเดต backend
 
 ตรวจบริการเริ่มต้นด้วย `docker compose config --services` และตรวจ TypeScript ใน `frontend` ด้วย `npm run type-check` โครงสร้างเดิมและรายละเอียดโมเดลอยู่ใน [คู่มือ RalphGuard](docs/RALPHGUARD-README.md)
+
+## Tam · เดโมใบงานผ่าน LINE OA และ Telegram
+
+เปิด [เดโมของ Tam](frontend/public/tam-demo/index.html) จากไฟล์ในเครื่อง หรือเปิด `/tam-demo/index.html` เมื่อรัน frontend แล้ว เดโมใช้ข้อมูลจำลองในเบราว์เซอร์ เปิดได้โดยไม่ต้องตั้งค่า backend, bot token หรือบัญชี OpenAI
+
+1. กด **สร้างใบงานตัวอย่าง** แล้วเปิด Telegram เพื่อดูข้อความแจ้งเตือนรออนุมัติ
+2. ใน LINE OA กด **สรุปวันนี้** เพื่อดูใบงานที่มีเหตุการณ์ในวันนั้นตามเวลาไทย หรือพิมพ์ `ดูเคส WO-001` (ใช้ UUID ได้เช่นกัน)
+3. ที่โต๊ะหัวหน้าโครงการ กด **อนุมัติ** หรือ **ปฏิเสธ** แล้วดูผลในแชต LINE จำลอง คำแนะนำมาจากสถานะใบงาน
+
+สำหรับก็อต: รูปแบบรายงานใช้ `project_id`, `id`, `state`, `request.brief` และ `events[].at` ของ WorkOrder ส่วน `WO-001` เป็นชื่อย่อเฉพาะเดโม เมื่อต่อระบบจริงให้ฝั่งเซิร์ฟเวอร์อ่านข้อมูลตามสิทธิ์โครงการและส่งข้อความไปยังแชตที่ผูกกับผู้ใช้
