@@ -45,6 +45,20 @@ function engineFor(scope: DemoScope) {
   return engine
 }
 
+export const STUDY_BRIEF = 'เปิดโครงการลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด'
+
+/**
+ * Record the scripted D01 study in this project without the on-screen pacing: the same
+ * engine, playbook and events as typing the brief to the Study Lead and accepting the group.
+ */
+async function recordStudy(scope: DemoScope) {
+  const engine = createLabDemo({ store, scope, experimentId: DEMO_EXPERIMENT, transport: createMockTransport(), playbook: DEMO_PLAYBOOK })
+  const { jobId } = await engine.submit('director', STUDY_BRIEF)
+  await engine.idle()
+  if (jobId) engine.decideGroup(jobId, true)
+  await engine.idle()
+}
+
 export function useAgentDemo(projectId: number | null) {
   const { data, status } = useSession()
   const viewer = data?.user
@@ -53,7 +67,7 @@ export function useAgentDemo(projectId: number | null) {
   const history = useSyncExternalStore(archive.subscribe, () => archive.load(scope), () => emptyHistory)
   const engine = engineFor(scope)
   return { state, submit: engine.submit, submitGroup: engine.submitGroup, decideGroup: engine.decideGroup, retry: engine.retry,
-    history, deleteThread: (id: string) => archive.remove(scope, id),
+    history, deleteThread: (id: string) => archive.remove(scope, id), recordStudy: () => recordStudy(scope),
     viewer, ready: status !== 'loading', userId: scope.userId, experimentId: DEMO_EXPERIMENT }
 }
 

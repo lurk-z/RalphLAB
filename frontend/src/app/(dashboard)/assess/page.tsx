@@ -96,6 +96,9 @@ import {
   searchManualSubstanceSuggestions,
 } from "@/lib/manual-substance";
 import { chatAssessment } from "@/lib/lab-station/assessment";
+import type { AgentRole } from "@/lib/lab-demo/events";
+import { AGENT_ORDER, type MessageRef } from "@/lib/lab-graph/model";
+import { openLabAtMessage, saveLabScreen, viewKey } from "@/lib/lab-graph/view-memory";
 import { parseProjectRouteId } from "@/lib/project-routing";
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import {
@@ -132,14 +135,9 @@ const FaceView = dynamic(
 // ── Inflammation trend chart (client-only, recharts) ──
 const TrendChart = dynamic(() => import("@/components/charts/TrendChart"), { ssr: false });
 
-// ── Node graph (client-only) ──
-const FormulaGraph = dynamic(() => import("@/components/formula/FormulaGraph"), {
+const ProjectGraphView = dynamic(() => import("@/components/lab-graph/ProjectGraphView"), {
   ssr: false,
-  loading: () => (
-    <div className="grid h-full w-full place-items-center text-xs text-slate-800/50">
-      กำลังโหลด Node Graph…
-    </div>
-  ),
+  loading: () => <div role="status" className="grid h-dvh place-items-center bg-background text-sm text-slate-600">กำลังโหลดกราฟ…</div>,
 });
 
 const LabView = dynamic(() => import("@/components/three/skincare-lab/LabView"), {
@@ -148,9 +146,13 @@ const LabView = dynamic(() => import("@/components/three/skincare-lab/LabView"),
 });
 
 type Mode = WorkspaceMode;
+const tabMode = (tab: string | null | undefined): Mode | undefined =>
+  tab === "graph" || tab === "nodes" ? "nodes" : tab === "lab" || tab === "assess" ? tab : undefined;
+const agentRole = (value: string | undefined): AgentRole | null =>
+  AGENT_ORDER.find((role) => role === value) ?? null;
 const WORKSPACE_TABS: [Mode, string, SemanticIconName][] = [
   ["assess", "ประเมิน", "flask"],
-  ["nodes", "Nodes", "puzzle"],
+  ["nodes", "Graph", "graph"],
   ["lab", "Lab", "beaker"],
 ];
 type PrimaryNavigationItem = "assessment" | "substances";
@@ -273,10 +275,11 @@ const clampLeftSidebarWidth = (width: number, viewportWidth = Number.POSITIVE_IN
     Math.max(LEFT_SIDEBAR_MIN_WIDTH, width),
   );
 
-export default function StudioPage({ searchParams }: { searchParams: { tab?: string } }) {
-  const requestedMode = searchParams.tab === "lab" || searchParams.tab === "nodes" || searchParams.tab === "assess"
-    ? searchParams.tab : undefined;
+export default function StudioPage({ searchParams }: { searchParams: { tab?: string; agent?: string } }) {
+  // `tab=graph` opens the project graph; older `tab=nodes` links still land there.
+  const requestedMode = tabMode(searchParams.tab);
   const [mode, setMode] = useState<Mode>(requestedMode ?? "assess");
+  const [graphAgent, setGraphAgent] = useState<AgentRole | null>(agentRole(searchParams.agent));
   const showLab = mode === "lab";
   const [qsarEnabled, setQsarEnabled] = useState(false);
   useEffect(() => {
@@ -365,7 +368,6 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
   );
   const activeFormula = formulas.find((f) => f.id === activeId);
   const formula = activeFormula?.items ?? [];
-  const graphOwnerId = activeFormula?.id ?? FORMULA_GRAPH_DRAFT_ID;
 
   useEffect(() => {
     if (formulaSidebarCollapsed) setLibraryTargetFormulaId(null);
@@ -563,7 +565,7 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
           setRegion(savedWorkspace.region);
           setDayIdx(savedWorkspace.dayIdx);
           const tab = new URLSearchParams(window.location.search).get("tab");
-          if (tab !== "lab" && tab !== "assess" && tab !== "nodes") setMode(savedWorkspace.mode);
+          if (!tabMode(tab)) setMode(savedWorkspace.mode);
           // Formula details now live inside each card, so restore the active
           // formula as the initially expanded card instead of opening a
           // separate formulation panel over the model.
@@ -621,35 +623,6 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
   );
   const latestWorkspaceDraft = useRef(workspaceDraft);
   latestWorkspaceDraft.current = workspaceDraft;
-  const previewGraphSnapshot = (
-    formulaId: string,
-    snapshot: FormulaGraphSnapshot,
-  ) => {
-    const ownerExists =
-      formulaId === FORMULA_GRAPH_DRAFT_ID
-      || latestWorkspaceDraft.current.formulas.some((formula) => formula.id === formulaId);
-    if (!formulaId || !ownerExists) return false;
-    const nextGraphByFormulaId = {
-      ...graphByFormulaIdRef.current,
-      [formulaId]: snapshot,
-    };
-    graphByFormulaIdRef.current = nextGraphByFormulaId;
-    latestWorkspaceDraft.current = {
-      ...latestWorkspaceDraft.current,
-      graphByFormulaId: nextGraphByFormulaId,
-    };
-    return true;
-  };
-  const commitGraphSnapshot = (
-    formulaId: string,
-    snapshot: FormulaGraphSnapshot,
-  ) => {
-    if (!previewGraphSnapshot(formulaId, snapshot)) return;
-    setGraphByFormulaId((previous) => ({
-      ...previous,
-      [formulaId]: snapshot,
-    }));
-  };
 
   // Save a sanitized, project-scoped draft after meaningful workspace changes.
   // Hydration must finish first so the default React state can never overwrite
@@ -1403,21 +1376,6 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
     setRegion(pastedFormula.region);
     setError(null);
     toast.success(`สร้าง “${nextName}” แล้ว`);
-  };
-  // Save the current node graph as a brand-new formula (from node mode).
-  const saveGraphAsFormula = (items: FormulaItem[]) => {
-    const actives = items.filter((it) => it.smiles.trim() && !isWaterItem(it));
-    if (!actives.length) return;
-    const id = "f" + Date.now();
-    const n = formulas.filter((f) => (f.type || "").includes("Node")).length + 1;
-    setFormulas((prev) => [...prev, { id, name: `สูตรจาก Node ${n}`, type: "จาก Node graph", region, items: actives }]);
-    setActiveId(id);
-    setExpandedFormulaIds((current) => {
-      const next = new Set(current);
-      next.add(id);
-      return next;
-    });
-    setRecentlyCreatedFormulaId(id);
   };
   const selectFormula = (id: string) => {
     const selected = formulas.find((item) => item.id === id);
@@ -2198,7 +2156,9 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
             changePrimaryNavigation("assessment");
             setMode(value);
             const url = new URL(window.location.href);
-            url.searchParams.set("tab", value);
+            url.searchParams.set("tab", value === "nodes" ? "graph" : value);
+            if (value !== "nodes") url.searchParams.delete("agent");
+            else if (graphAgent) url.searchParams.set("agent", graphAgent);
             window.history.replaceState(window.history.state, "", url);
           }}
           className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${mode === value
@@ -2212,6 +2172,37 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
     </nav>
   );
 
+  const studioUrl = (tab: string, agent: AgentRole | null) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    if (agent) url.searchParams.set("agent", agent);
+    else url.searchParams.delete("agent");
+    window.history.replaceState(window.history.state, "", url);
+  };
+  // Graph and Lab only change views; neither writes formulas, assessments or drafts.
+  const openGraph = (agent: AgentRole) => {
+    setGraphAgent(agent);
+    setMode("nodes");
+    studioUrl("graph", agent);
+  };
+  const openLab = ({ message, agent }: { message?: MessageRef; agent?: AgentRole }) => {
+    const key = viewKey(projectId);
+    if (message) openLabAtMessage(key, message);
+    else if (agent) saveLabScreen(key, { agent, screen: { kind: "private" } });
+    setMode("lab");
+    studioUrl("lab", null);
+  };
+
+  if (mode === "nodes" && activeNavigationItem === "assessment") {
+    return <ProjectGraphView projectId={projectId} tabs={workspaceTabs} backHref={projectId ? "/projects" : "/"}
+      requestedAgent={graphAgent}
+      onAgentChange={(agent) => {
+        setGraphAgent(agent);
+        studioUrl("graph", agent);
+      }}
+      onOpenLab={openLab} />;
+  }
+
   if (showLab && activeNavigationItem === "assessment") {
     return <div className="app-light grid h-dvh grid-rows-[3.5rem_minmax(0,1fr)] bg-background text-foreground">
       <header className="relative flex items-center border-b bg-card px-4">
@@ -2219,7 +2210,7 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
         {workspaceTabs}
       </header>
       <section aria-label="ห้องแล็บ 3D" className="relative min-h-0 overflow-hidden">
-        <LabView embedded projectId={projectId} formula={activeFormula ? {
+        <LabView embedded projectId={projectId} onOpenGraph={openGraph} formula={activeFormula ? {
           id: activeFormula.id, name: productName, items: activeFormula.items,
           assessment: chatAssessment(assessment, productName),
         } : undefined} />
@@ -3107,38 +3098,6 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
                   <SemanticIcon name="activity" className="size-4" />
                 </button>
               </div>
-            </div>
-          )}
-          {activeNavigationItem !== "substances" && mode === "nodes" && (
-            <div className="absolute inset-0">
-              <FormulaGraph
-                qsarEnabled={qsarEnabled}
-                key={`${projectId ?? "standalone"}:${graphOwnerId}`}
-                seed={activeFormula?.items ?? []}
-                region={activeFormula?.region ?? region}
-                projectId={projectId}
-                snapshot={graphByFormulaId[graphOwnerId] ?? null}
-                onSnapshotPreview={(snapshot) =>
-                  previewGraphSnapshot(graphOwnerId, snapshot)
-                }
-                onSnapshotChange={(snapshot) =>
-                  commitGraphSnapshot(graphOwnerId, snapshot)
-                }
-                onSaveFormula={saveGraphAsFormula}
-                syncWithSeed={Boolean(activeFormula)}
-                onRegionChange={(nextRegion) => {
-                  setRegion(nextRegion);
-                  if (!activeFormula) return;
-                  invalidateFormulaAssessment(graphOwnerId);
-                  setFormulas((previous) =>
-                    previous.map((formulaItem) =>
-                      formulaItem.id === graphOwnerId
-                        ? { ...formulaItem, region: nextRegion }
-                        : formulaItem,
-                    ),
-                  );
-                }}
-              />
             </div>
           )}
           {/* Paint follows formula readiness; assessment follows paint ownership. */}

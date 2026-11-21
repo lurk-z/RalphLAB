@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { ArrowUp, Check, ChevronDown, CircleCheck, FlaskConical, History, Mic, Search, SquarePen, Trash2, X } from 'lucide-react'
+import { ArrowUp, Check, ChevronDown, CircleCheck, FlaskConical, History, Mic, Network, Search, SquarePen, Trash2, X } from 'lucide-react'
 import AssessmentReply from './AssessmentReply'
 import { assessmentText } from '@/lib/lab-demo/chat-assessment'
 import { ASSISTANT_TYPING_INTERVAL_MS, assistantTypingFrames } from '@/lib/assistant-typing'
@@ -77,7 +77,7 @@ function ChatMessages({ messages }: { messages: Thread['messages'] }) {
   ))
 }
 
-export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onClose, onModeChange, progress, sampleOpen, agentDemo, screen, navigate }: {
+export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onClose, onModeChange, progress, sampleOpen, agentDemo, screen, navigate, onOpenGraph, onReadingThread }: {
   agent: Role
   formula?: ChatFormula
   chat: ReturnType<typeof useLabAgentChat>
@@ -90,6 +90,10 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   agentDemo?: AgentDemo
   screen: DemoScreen
   navigate: (screen: DemoScreen) => void
+  /** Opens the project graph focused on one agent. */
+  onOpenGraph?: (agent: Role) => void
+  /** Reports the private history thread on screen, so Lab can reopen it. */
+  onReadingThread?: (agent: Role, threadId: string) => void
 }) {
   const [selectedId, setSelectedId] = useState<string | null | undefined>(screen.kind === 'private' ? screen.threadId : undefined)
   const [openMenu, setOpenMenu] = useState<'agents' | 'history' | null>(null)
@@ -102,6 +106,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const followScroll = useRef(true)
+  const openedAt = useRef(typeof performance === 'undefined' ? 0 : performance.now())
   const job = screen.kind === 'group' ? agentDemo?.state.jobs[screen.jobId] : undefined
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const role = { english: ROLE_EN[agent], scope: ROLE_SCOPE[agent] }
@@ -150,6 +155,10 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   }, [latestThreadId, selectedId, chatReady])
 
   useEffect(() => {
+    if (!job && thread?.id) onReadingThread?.(agent, thread.id)
+  }, [job, thread?.id, agent, onReadingThread])
+
+  useEffect(() => {
     if (!listening && shouldFocusInput.current) {
       shouldFocusInput.current = false
       inputRef.current?.focus()
@@ -183,12 +192,17 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
     const target = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(highlightId)}"]`)
     if (target) {
       followScroll.current = false
-      target.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+      // Arriving from another view (e.g. the graph) jumps at once: a smooth scroll that
+      // starts at the bottom would be pulled back by the follow-new-messages logic.
+      const justOpened = performance.now() - openedAt.current < 1500
+      const smooth = !justOpened && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      target.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
       target.focus({ preventScroll: true })
     }
     const timer = window.setTimeout(() => setHighlightId(null), 2500)
     return () => window.clearTimeout(timer)
-  }, [highlightId, demoThread, screen])
+    // thread?.id: the history list can settle after arrival and re-scroll to the bottom.
+  }, [highlightId, demoThread, screen, thread?.id])
 
   function pickThread(id: string | null) {
     setSelectedId(id)
@@ -236,6 +250,22 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   if (agentDemo && screen.kind === 'inbox') return <DemoInbox demo={agentDemo} history={allHistory} onAgent={onSelectAgent}
     onGroup={(jobId) => navigate({ kind: 'group', jobId })} onClose={onClose} />
 
+  // In a group the user picks which member's graph to open.
+  const graphAction = onOpenGraph && (job ? (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className={iconButton} type="button" aria-label="เปิดกราฟของสมาชิก" title="เปิดกราฟของสมาชิก"><Network /></button>
+      </PopoverTrigger>
+      <PopoverContent align="end" aria-label="เลือก Agent ที่จะดูในกราฟ" className="z-[86] w-60 bg-white p-1.5 text-slate-900">
+        <p className="px-2 pb-1 pt-1.5 text-xs font-semibold text-slate-600">เปิดกราฟของ</p>
+        {job.assignees.map((member) => <button key={member} type="button" onClick={() => onOpenGraph(member)}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600">
+          <Portrait agent={member} /><span className="flex-1">{ROLE_EN[member]}</span>
+        </button>)}
+      </PopoverContent>
+    </Popover>
+  ) : <button className={iconButton} type="button" aria-label={`เปิดกราฟของ ${name}`} title={`เปิดกราฟของ ${name}`} onClick={() => onOpenGraph(agent)}><Network /></button>)
+
   const historyActions = <>
     <PopoverTrigger asChild>
       <button className={iconButton} type="button" aria-label="ประวัติแชต" title="ประวัติแชต"><History /></button>
@@ -254,7 +284,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
       }}>
         <PopoverAnchor asChild>
           <div className="shrink-0">
-          {agentDemo ? <DemoChatHeader agent={agent} job={job} viewer={agentDemo.viewer} navigate={navigate} onClose={onClose} actions={job ? undefined : historyActions} /> :
+          {agentDemo ? <DemoChatHeader agent={agent} job={job} viewer={agentDemo.viewer} navigate={navigate} onClose={onClose} actions={<>{graphAction}{job ? undefined : historyActions}</>} /> :
           <header className="flex h-14 shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-3">
             <Popover open={openMenu === 'agents'} onOpenChange={(open) => setOpenMenu((menu) => open ? 'agents' : menu === 'agents' ? null : menu)}>
               <PopoverTrigger asChild>
@@ -277,6 +307,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
                 ))}
               </PopoverContent>
             </Popover>
+            {graphAction}
             {historyActions}
             <button className={iconButton} type="button" aria-label="ปิดแชต" title="ปิดแชต" onClick={onClose}><X /></button>
           </header>}

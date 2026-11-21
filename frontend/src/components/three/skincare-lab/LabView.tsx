@@ -12,6 +12,7 @@ import { useLabAgentChat, type ChatFormula } from './chat/useLabAgentChat'
 import { useAgentDemo } from './chat/useAgentDemo'
 import { chatAgentStatuses, demoAgentStatuses } from '@/lib/lab-demo/agent-status'
 import type { DemoScreen } from '@/lib/lab-demo/conversations'
+import { loadLabScreen, saveLabScreen, saveReadingThread, viewKey } from '@/lib/lab-graph/view-memory'
 
 // WebGL scene — client-only.
 const LabRoomCanvas = dynamic(() => import('./LabRoomCanvas'), { ssr: false })
@@ -25,19 +26,24 @@ const CHAT_MIN_WIDTH = 290
 const CHAT_MAX_WIDTH = 560
 const MIN_ROOM_WIDTH = 365
 
-export default function LabView({ embedded = false, projectId = null, formula }: {
+export default function LabView({ embedded = false, projectId = null, formula, onOpenGraph }: {
   embedded?: boolean
   projectId?: number | null
   formula?: ChatFormula
+  /** Opens the project graph focused on an agent (Studio only). */
+  onOpenGraph?: (agent: Role) => void
 } = {}) {
+  const memoryKey = viewKey(projectId)
+  // Returning from Graph (or opening a message from it) restores this conversation.
+  const [restored] = useState(() => loadLabScreen(memoryKey))
   const [ready, setReady] = useState(false)
-  const [agent, setAgent] = useState<Role | null>(null)
+  const [agent, setAgent] = useState<Role | null>(restored?.agent ?? null)
   const [cameraAgent, setCameraAgent] = useState<Role | null>(null)
   const [chatWidth, setChatWidth] = useState(400)
   const [demoChat, setDemoChat] = useState(false)
   // Normal Lab entry uses the project-scoped handoff chat with simulated agents.
   const [agentDemoOn, setAgentDemoOn] = useState(true)
-  const [demoScreen, setDemoScreen] = useState<DemoScreen>({ kind: 'private' })
+  const [demoScreen, setDemoScreen] = useState<DemoScreen>(restored?.screen ?? { kind: 'private' })
   const agentDemo = useAgentDemo(projectId)
   const [progress, setProgress] = useState<Progress>()
   const [sampleOpen, setSampleOpen] = useState(0)
@@ -63,6 +69,8 @@ export default function LabView({ embedded = false, projectId = null, formula }:
     setSampleOpen(value => value + 1)
   }, [])
   const stopFollowing = useCallback(() => setCameraAgent(null), [])
+  useEffect(() => saveLabScreen(memoryKey, { agent, screen: demoScreen }), [memoryKey, agent, demoScreen])
+  const rememberThread = useCallback((role: Role, threadId: string) => saveReadingThread(memoryKey, role, threadId), [memoryKey])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -189,7 +197,8 @@ export default function LabView({ embedded = false, projectId = null, formula }:
             <LabAgentChat key={`${projectId ?? 'standalone'}:${agent}:${agentDemo.userId}:${demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId ?? 'private' : 'inbox'}`}
               agent={agent} formula={demoChat || agentDemoOn ? undefined : formula} chat={chat} onSelectAgent={selectAgent} onClose={() => selectAgent(null)} progress={demoChat ? progress : undefined}
               onModeChange={chooseChatMode}
-              sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen} />
+              sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen}
+              onOpenGraph={onOpenGraph} onReadingThread={rememberThread} />
           </div>
         )}
       </div>
