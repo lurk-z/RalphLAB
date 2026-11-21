@@ -142,8 +142,8 @@ export default function LabRoomExplorer({ embedded = false, projectId = null, fo
               {!atDesk && <Button asChild variant="outline" size="sm"><Link href="/lab-room?table=protein">งานโปรตีนบนโต๊ะ</Link></Button>}
               <Button asChild variant="outline" size="sm"><Link href="/lab-room/protein">โปรตีน 3D</Link></Button>
               <Button asChild variant="outline" size="sm"><Link href="/lab-room/orders">ใบงาน Agent</Link></Button>
-              <Button asChild variant="outline" size="sm"><a href="https://ralphlab-protein-desk.surawit2003it.chatgpt.site/lab-room/timed">ติดตามตามเวลา</a></Button>
-              <Button asChild variant="outline" size="sm"><a href="https://ralphlab-protein-desk.surawit2003it.chatgpt.site/lab-room/team">ทีม Agent</a></Button>
+              <Button asChild variant="outline" size="sm"><a href="https://ralphlab-workbench.surawit2003it.chatgpt.site/lab-room/timed">ติดตามตามเวลา</a></Button>
+              <Button asChild variant="outline" size="sm"><a href="https://ralphlab-workbench.surawit2003it.chatgpt.site/lab-room/team">ทีม Agent</a></Button>
             </nav>
             <LabRoomCanvas onReady={handleReady} bridge={localPreview || atDesk ? undefined : bridge}
               chatOpen={agent !== null} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing}
