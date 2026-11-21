@@ -12,7 +12,12 @@ cd RalphLAB
 Copy-Item .env.example .env
 ```
 
-เปิด `.env` แล้วตั้ง `AUTH_SECRET` และ `NEXTAUTH_SECRET` เป็นค่าสุ่มยาว **ค่าเดียวกัน** สำหรับเครื่องของคุณ ตั้ง `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` ของ OAuth client สำหรับพัฒนาที่อนุญาต callback `http://localhost:3000/api/auth/callback/google` การล็อกอินเพื่อเปิดโปรเจกต์ต้องใช้ค่าเหล่านี้ ตั้ง `GROQ_API_KEY` หากต้องการใช้ผู้ช่วยแชต
+เปิด `.env` ที่รากโปรเจกต์ แล้วตั้ง `AUTH_SECRET` และ `NEXTAUTH_SECRET` เป็นค่าสุ่มยาว **ค่าเดียวกัน** สำหรับลงนามเซสชันทั้งสองโหมด
+
+- `LOGIN_ENABLED=false` เปิด Studio และ Lab ทันที โปรเจกต์ผู้เยี่ยมชมผูกกับคุกกี้ของเบราว์เซอร์นั้น
+- `LOGIN_ENABLED=true` บังคับล็อกอินด้วย Google และเปิดโปรเจกต์ของบัญชีนั้น ตั้ง `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` โดยอนุญาต callback `http://localhost:3000/api/auth/callback/google`
+
+หลังเปลี่ยนโหมด ให้เริ่ม Next.js ใหม่และรัน `docker compose up -d backend` หากใช้ production ให้ตั้ง `LOGIN_ENABLED` ให้ตรงกันทั้ง frontend และ backend แล้ว build frontend ใหม่ ระบบที่ไม่ได้กำหนดค่านี้จะใช้โหมดล็อกอิน ตั้ง `GROQ_API_KEY` หากต้องการใช้ผู้ช่วยแชต
 
 ```powershell
 # Next.js อ่านค่าจาก frontend/.env.local ซึ่ง Git ไม่ติดตาม
@@ -23,7 +28,7 @@ npm ci
 npm run dev
 ```
 
-เปิดเว็บที่ `http://localhost:3000` และ API ที่ `http://localhost:8000/docs` สำหรับงานหน้า landing page สามารถเริ่มจาก `cd frontend`, `npm ci` และ `npm run dev` ได้ทันที ส่วน Studio ใช้ backend และการล็อกอิน
+เปิดเว็บที่ `http://localhost:3000` และ API ที่ `http://localhost:8000/docs` สำหรับงานหน้า landing page สามารถเริ่มจาก `cd frontend`, `npm ci` และ `npm run dev` ได้ทันที ส่วนการบันทึกโปรเจกต์ใน Studio ใช้ backend
 
 ## การทำงานร่วมกัน
 

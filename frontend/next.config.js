@@ -1,5 +1,16 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const { parse } = require("dotenv");
+
+// Expose only the login switch from the shared FastAPI/Compose environment.
+const rootEnv = path.resolve(__dirname, "../.env");
+const loginSetting = process.env.LOGIN_ENABLED ??
+  (fs.existsSync(rootEnv) ? parse(fs.readFileSync(rootEnv)).LOGIN_ENABLED : undefined) ?? "true";
+if (!["true", "false"].includes(loginSetting)) throw new Error("LOGIN_ENABLED must be true or false");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: { NEXT_PUBLIC_LOGIN_ENABLED: loginSetting },
   reactStrictMode: true,
   transpilePackages: ["three"],
   // Keep the development cache separate from production builds. Running
