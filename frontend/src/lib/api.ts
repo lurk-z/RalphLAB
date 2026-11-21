@@ -1,4 +1,5 @@
 import { getSession } from "next-auth/react";
+import { loginEnabled } from "./login-mode.ts";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -34,7 +35,9 @@ export function apiErrorMessage(cause: unknown, fallback: string): string {
     return `${fallback}: เซิร์ฟเวอร์ไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง`;
   }
   if (cause instanceof ApiError) {
-    if (cause.status === 401) return `${fallback}: เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่`;
+    if (cause.status === 401) return loginEnabled
+      ? `${fallback}: เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่`
+      : `${fallback}: กรุณารีเฟรชหน้าแล้วลองอีกครั้ง`;
     if (cause.status === 503 && cause.detail?.includes("AUTH_SECRET")) {
       return `${fallback}: ระบบยืนยันตัวตนของเซิร์ฟเวอร์ยังตั้งค่าไม่ครบ`;
     }
@@ -239,7 +242,7 @@ function isRetriableRead(init?: RequestInit): boolean {
   return method === "GET" || method === "HEAD";
 }
 
-async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
+export async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   try {
     return await httpOnce<T>(path, init, timeoutMs);
   } catch (cause) {
@@ -255,6 +258,29 @@ async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Pro
   }
 }
 
+let guestRequest: Promise<string> | undefined;
+
+async function requestGuestToken(): Promise<string> {
+  const response = await fetch("/api/guest", { method: "POST", cache: "no-store" });
+  if (!response.ok) throw new ApiError(response.status, response.statusText, "เปิดพื้นที่ผู้เยี่ยมชมไม่สำเร็จ");
+  return (await response.json()).backendToken;
+}
+
+async function tokenFor(path: string) {
+  if (loginEnabled) return (await getSession())?.backendToken;
+  const needsOwner = path === "/api/lab/projects" || path.startsWith("/api/lab/projects/") ||
+    path.startsWith("/api/projects/") ||
+    (path.startsWith("/api/assessments/") && path !== "/api/assessments/availability");
+  if (!needsOwner) return undefined;
+  if (!guestRequest) {
+    const request = async () => navigator.locks
+      ? await navigator.locks.request("ralphguard-guest", requestGuestToken)
+      : requestGuestToken();
+    guestRequest = request().finally(() => { guestRequest = undefined; });
+  }
+  return guestRequest;
+}
+
 async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   const ctrl = new AbortController();
   const externalSignal = init?.signal;
@@ -267,13 +293,13 @@ async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000):
     ctrl.abort();
   }, timeoutMs);
   try {
-    const session = await getSession();
+    const token = await tokenFor(path);
     const res = await fetch(`${API}${path}`, {
       ...init,
       signal: ctrl.signal,
       headers: {
         "Content-Type": "application/json",
-        ...(session?.backendToken ? { Authorization: `Bearer ${session.backendToken}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init?.headers ?? {}),
       },
     });
@@ -284,6 +310,11 @@ async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000):
         try {
           const parsed = JSON.parse(body) as { detail?: unknown };
           if (typeof parsed.detail === "string") detail = parsed.detail;
+          if (Array.isArray(parsed.detail)) {
+            const messages = parsed.detail.flatMap(issue =>
+              typeof issue?.msg === "string" ? [issue.msg.replace(/^Value error, /, "")] : []);
+            if (messages.length) detail = messages.join(" · ");
+          }
         } catch {
           // Keep the plain response body when the server does not return JSON.
         }

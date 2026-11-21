@@ -1,0 +1,83 @@
+.timed {
+  max-width: 52rem;
+  margin: auto;
+  padding: 2rem 1rem 5rem;
+  color: #143b37;
+  font-family: LINESeedSansTH, system-ui, sans-serif;
+}
+.timed nav,
+.timed small {
+  color: #405f5a;
+}
+.timed a {
+  color: #006e60;
+  text-decoration: underline;
+}
+.timed h1 {
+  font-size: clamp(1.65rem, 4vw, 2.5rem);
+  font-weight: 700;
+  margin: 1rem 0;
+}
+.timed h2 {
+  font-size: 1.3rem;
+  font-weight: 650;
+}
+.timed section,
+.timed form,
+.timed details {
+  display: grid;
+  gap: 0.9rem;
+  margin: 1rem 0;
+  padding: 1.25rem;
+  border: 1px solid #c4d9d3;
+  border-radius: 12px;
+  background: #fbfdfc;
+}
+.timed label {
+  display: block;
+  font-weight: 550;
+}
+.timed input:not([type="checkbox"]),
+.timed select {
+  display: block;
+  width: 100%;
+  padding: 0.55rem;
+  border: 1px solid #aac0bb;
+  border-radius: 0.4rem;
+  margin-top: 0.25rem;
+  background: white;
+}
+.timed button {
+  background: #086b5c;
+  color: white;
+  padding: 0.65rem 1rem;
+  border-radius: 0.45rem;
+  justify-self: start;
+}
+.timed button:disabled {
+  opacity: 0.55;
+}
+.timed li {
+  border-left: 3px solid #83b5a8;
+  padding: 0.5rem 0.9rem;
+  margin: 0.45rem 0;
+}
+.timed [role="alert"] {
+  color: #983826;
+}
+.timed code {
+  overflow-wrap: anywhere;
+}
+.timed details > * {
+  margin: 0.7rem 0;
+}
+.timed .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 550px) {
+  .timed .pair {
+    grid-template-columns: 1fr;
+  }
+}

@@ -10,6 +10,7 @@ import GridScanShowcase from './GridScanShowcase'
 import AIAssistantShowcase from './AIAssistantShowcase'
 import NodeWorkspaceShowcase from './NodeWorkspaceShowcase'
 import OCRLabelShowcase from './OCRLabelShowcase'
+import { localLabPreview } from "@/lib/lab-preview"
 import { scrollState } from '@/lib/landing/scroll'
 import { storyState, smoothstep } from '@/lib/landing/story'
 
@@ -97,7 +98,7 @@ function HeroChapter({ c }: { c: Chapter }) {
           size="lg"
           className="rounded-full px-7 opacity-0 shadow-none"
         >
-          <Link href="/projects">
+          <Link href={localLabPreview ? "/lab-room" : "/projects"}>
             เริ่มวิเคราะห์
             <ArrowRight />
           </Link>
@@ -167,7 +168,7 @@ function CTAChapter({ c }: { c: Chapter }) {
 
       <div className="pointer-events-auto mt-8 flex flex-wrap items-center justify-center gap-3">
         <Button asChild size="lg" className="rounded-full px-7 shadow-none">
-          <a href="/projects">เริ่มใช้งาน</a>
+          <a href={localLabPreview ? "/lab-room" : "/projects"}>เริ่มใช้งาน</a>
         </Button>
       </div>
     </>

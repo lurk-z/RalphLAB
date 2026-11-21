@@ -4,6 +4,7 @@ import { IBM_Plex_Mono, Noto_Sans_Thai } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { SessionProvider } from "@/components/auth/SessionProvider";
 import "./globals.css";
+import "@/components/three/skincare-lab/lab-chat.css";
 
 // LINE Seed Sans TH — Thai + Latin body text
 const lineSeedTH = localFont({

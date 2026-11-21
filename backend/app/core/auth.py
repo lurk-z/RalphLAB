@@ -16,6 +16,7 @@ from app.core.config import settings
 class CurrentUser:
     id: str
     email: str | None = None
+    verified_email: str | None = None
 
 
 def _decode_part(value: str) -> dict:
@@ -45,10 +46,11 @@ async def get_current_user(authorization: str | None = Header(default=None)) -> 
             and payload.get("aud") == "ralphguard-backend"
             and int(payload.get("exp", 0)) > int(time.time())
             and isinstance(payload.get("sub"), str)
+            and (not settings.LOGIN_ENABLED or not payload["sub"].startswith("guest:"))
         )
     except (ValueError, TypeError, KeyError, json.JSONDecodeError, binascii.Error, UnicodeDecodeError):
         valid = False
         payload = {}
     if not valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or expired authentication")
-    return CurrentUser(id=payload["sub"], email=payload.get("email"))
+    return CurrentUser(id=payload["sub"], email=payload.get("email"), verified_email=payload.get("verified_email"))

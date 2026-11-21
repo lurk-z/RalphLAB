@@ -1,6 +1,7 @@
 """ORM models — import all here so Alembic autogenerate sees them."""
 from app.db.base import Base
 from app.models.project import Project
+from app.models.work_order import WorkOrder, WorkOrderReader
 from app.models.substance import Substance
 from app.models.assessment import Assessment, AssessmentStatus
 from app.models.ingredient_registry import ContinualLearningQueue, ExperimentalEvidence, IngredientRegistry, PubChemCache, SubstanceObservation
@@ -9,6 +10,8 @@ from app.models.herbal_registry import HerbConstituent, HerbEvidence, HerbalMate
 __all__ = [
     "Base",
     "Project",
+    "WorkOrder",
+    "WorkOrderReader",
     "Substance",
     "Assessment",
     "AssessmentStatus",

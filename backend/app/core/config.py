@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # API
     API_HOST: str = "0.0.0.0"
+    LOGIN_ENABLED: bool = True
     API_PORT: int = 8000
     API_SECRET_KEY: str = "change-me"
     # In a combined Vercel project NextAuth and FastAPI share the same
