@@ -18,11 +18,18 @@ import {
 } from "@/app/lab-room/orders/types";
 import type { Protein } from "@/app/lab-room/protein/ProteinView";
 import type { Role } from "../agents/workflow";
+import type { ComparisonPhase, ComparisonReport } from "./ComparisonEvidence";
+import type { ComparisonStructure } from "../InsulinComparisonTable";
 
 export type DeskBinding = { project: number; order: string };
 type Phase = "walking" | "working" | "done";
-type Step = NonNullable<StudyEvent["protein_step"]>;
-type Pose = Pick<Step, "pdb" | "angles" | "rmsd">;
+type Alignment = NonNullable<StudyEvent["protein_step"]>;
+type Step = Alignment | NonNullable<StudyEvent["comparison_step"]>;
+type Pose = Pick<Alignment, "pdb" | "angles" | "rmsd">;
+type EvidenceCase = {
+  report: ComparisonReport;
+  structures: ComparisonStructure[];
+};
 type Frame = { id: string; role: Role; message: string; step: Step };
 type Playback = {
   study: Study | null;
@@ -30,6 +37,7 @@ type Playback = {
   queue: Frame[];
   phase: Phase | null;
   replaying: boolean;
+  comparisonPhase: ComparisonPhase;
 };
 const empty: Playback = {
   study: null,
@@ -37,25 +45,39 @@ const empty: Playback = {
   queue: [],
   phase: null,
   replaying: false,
+  comparisonPhase: "structures",
 };
 
 function frames(events: StudyEvent[], prefix = ""): Frame[] {
-  return events.flatMap((e) =>
-    e.protein_step
+  return events.flatMap((e) => {
+    const step = e.comparison_step ?? e.protein_step;
+    return step
       ? [
           {
             id: prefix + e.id,
             role: e.sender as Role,
             message: e.message,
-            step: e.protein_step,
+            step,
           },
         ]
-      : [],
-  );
+      : [];
+  });
 }
 
 function savedPose(study: Study): Pose | null {
   return study.events.findLast((e) => e.pose)?.pose ?? null;
+}
+
+function view(study: Study, step?: Step) {
+  if (step && "angles" in step)
+    return { pose: step, comparisonPhase: "structures" as const };
+  return {
+    pose: savedPose(study),
+    comparisonPhase:
+      step?.phase ??
+      study.events.findLast((e) => e.comparison_step)?.comparison_step?.phase ??
+      ("structures" as const),
+  };
 }
 
 type Action =
@@ -69,7 +91,7 @@ function reduce(state: Playback, action: Action): Playback {
   if (action.type === "reset") return empty;
   if (action.type === "snapshot") {
     const study = action.study;
-    if (!state.study) return { ...empty, study, pose: savedPose(study) };
+    if (!state.study) return { ...empty, study, ...view(study) };
     const previous = state.study.events.length;
     if (study.events.length <= previous) return state;
     const fresh = frames(study.events.slice(previous));
@@ -78,9 +100,7 @@ function reduce(state: Playback, action: Action): Playback {
       ...state,
       study,
       queue,
-      pose: state.queue.length
-        ? state.pose
-        : (fresh[0]?.step ?? savedPose(study)),
+      ...(!state.queue.length && view(study, fresh[0]?.step)),
       replaying: fresh.length ? false : state.replaying,
       phase: state.queue.length ? state.phase : fresh.length ? "walking" : null,
     };
@@ -89,21 +109,23 @@ function reduce(state: Playback, action: Action): Playback {
   if (action.type === "finish")
     return {
       ...state,
-      pose: savedPose(state.study),
+      ...view(state.study),
       queue: [],
       phase: "done",
       replaying: false,
     };
   if (action.type === "replay") {
     const queue = frames(
-      state.study.events.filter((e) => e.protein_step?.run_id === action.run),
+      state.study.events.filter(
+        (e) => (e.comparison_step ?? e.protein_step)?.run_id === action.run,
+      ),
       action.prefix,
     );
     return queue.length
       ? {
           ...state,
           queue,
-          pose: queue[0].step,
+          ...view(state.study, queue[0].step),
           phase: "walking",
           replaying: true,
         }
@@ -114,18 +136,25 @@ function reduce(state: Playback, action: Action): Playback {
   if (action.phase === "done") {
     const queue = state.queue.slice(1);
     const next = queue[0];
-    const pose = next?.step.phase === "inspect" ? next.step : current.step;
+    const first = next && ["inspect", "structures"].includes(next.step.phase);
     return {
       ...state,
       queue,
-      pose: !next && !state.replaying ? (savedPose(state.study) ?? pose) : pose,
+      ...view(
+        state.study,
+        !next && !state.replaying
+          ? undefined
+          : first
+            ? next.step
+            : current.step,
+      ),
       phase: next ? "walking" : "done",
     };
   }
   return {
     ...state,
     phase: action.phase,
-    pose: action.phase === "working" ? current.step : state.pose,
+    ...(action.phase === "working" && view(state.study, current.step)),
   };
 }
 
@@ -136,6 +165,8 @@ export function useProteinDesk(binding: DeskBinding | null, signedIn: boolean) {
   const [pending, setPending] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [protein, setProtein] = useState<Protein | null>(null);
+  const [comparison, setComparison] = useState<EvidenceCase | null>(null);
+  const [reading, setReading] = useState<ComparisonPhase | null>(null);
   const [modelError, setModelError] = useState("");
   const pendingRequest = useRef({ key: "", id: "" });
   const posting = useRef(false);
@@ -197,13 +228,29 @@ export function useProteinDesk(binding: DeskBinding | null, signedIn: boolean) {
     state.study?.events.find((e) => e.structure)?.structure?.pdb ??
     "1EMA";
   const hasStudy = Boolean(state.study);
+  const isComparison =
+    state.study?.request.case_template === "insulin-lispro-v1";
   useEffect(() => {
     if (!hasStudy) {
       setProtein(null);
+      setComparison(null);
       return;
     }
     const ctrl = new AbortController();
     setModelError("");
+    if (isComparison) {
+      http<EvidenceCase>("/api/lab/protein/comparisons/insulin-lispro-v1", {
+        signal: ctrl.signal,
+      })
+        .then((data) => {
+          if (!ctrl.signal.aborted) setComparison(data);
+        })
+        .catch((e) => {
+          if (!ctrl.signal.aborted)
+            setModelError(apiErrorMessage(e, "โหลดข้อมูลเปรียบเทียบไม่ได้"));
+        });
+      return () => ctrl.abort();
+    }
     http<Protein>("/api/lab/protein/" + (pdb === "3I40" ? "insulin" : "gfp"), {
       signal: ctrl.signal,
     })
@@ -215,16 +262,29 @@ export function useProteinDesk(binding: DeskBinding | null, signedIn: boolean) {
           setModelError(apiErrorMessage(e, "โหลดพิกัดโปรตีนไม่ได้"));
       });
     return () => ctrl.abort();
-  }, [hasStudy, pdb, refresh]);
+  }, [hasStudy, isComparison, pdb, refresh]);
   const table = useMemo(
     () =>
-      protein && hasStudy && protein.pdb === pdb
+      protein && hasStudy && !isComparison && protein.pdb === pdb
         ? { protein, angles: state.pose?.angles ?? protein.start_angles }
         : null,
-    [hasStudy, pdb, protein, state.pose],
+    [hasStudy, isComparison, pdb, protein, state.pose],
   );
   const active = state.queue[0];
-  const modelReady = Boolean(table);
+  const evidencePhase = active
+    ? state.comparisonPhase
+    : (reading ?? state.comparisonPhase);
+  const comparisonTable = useMemo(
+    () =>
+      isComparison && comparison
+        ? {
+            structures: comparison.structures,
+            showContacts: evidencePhase !== "structures",
+          }
+        : null,
+    [isComparison, comparison, evidencePhase],
+  );
+  const modelReady = Boolean(table || comparisonTable);
   const work = useMemo(
     () => (modelReady && active ? { id: active.id, role: active.role } : null),
     [modelReady, active],
@@ -235,24 +295,30 @@ export function useProteinDesk(binding: DeskBinding | null, signedIn: boolean) {
   );
   const [commandError, setCommandError] = useState("");
   async function run(startFrom: "latest" | "exercise") {
-    if (!table || !state.study || !owner || active || posting.current) return;
+    if (!modelReady || !state.study || !owner || active || posting.current)
+      return;
     posting.current = true;
     setPending(true);
     setCommandError("");
-    const body = {
-      expected_sequence: state.study.events.length,
-      model: table.protein.model,
-      task: "align_reference",
-      start_from: startFrom,
-    };
+    const body = table
+      ? {
+          expected_sequence: state.study.events.length,
+          model: table.protein.model,
+          task: "align_reference",
+          start_from: startFrom,
+        }
+      : { expected_sequence: state.study.events.length };
     const key = JSON.stringify(body);
     if (pendingRequest.current.key !== key)
       pendingRequest.current = { key, id: crypto.randomUUID() };
     try {
-      const row = await http<Study>(base + "/protein-runs", {
-        method: "POST",
-        body: JSON.stringify({ ...body, id: pendingRequest.current.id }),
-      });
+      const row = await http<Study>(
+        base + (isComparison ? "/insulin-comparisons" : "/protein-runs"),
+        {
+          method: "POST",
+          body: JSON.stringify({ ...body, id: pendingRequest.current.id }),
+        },
+      );
       if (mounted.current) dispatch({ type: "snapshot", study: row });
     } catch (e) {
       if (mounted.current) {
@@ -273,6 +339,13 @@ export function useProteinDesk(binding: DeskBinding | null, signedIn: boolean) {
     work,
     phase,
     table,
+    comparisonTable,
+    reading,
+    setReading,
+    evidencePhase,
+    caseReport:
+      state.study?.events.findLast((e) => e.comparison_report)
+        ?.comparison_report ?? comparison?.report,
     owner,
     pending,
     error: error || modelError || commandError,

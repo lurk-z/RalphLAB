@@ -142,22 +142,29 @@ function PlateLabel({ protein }: { protein: Protein }) {
   )
 }
 
-export default function ProteinTable({ state, anchor }: { state: ProteinTableState; anchor: THREE.Vector3 }) {
-  const group = useRef<THREE.Group>(null)
-  const identity = useMemo(() => ({ pdb: state.protein.pdb, model: state.protein.model }), [state.protein.pdb, state.protein.model])
+export function ProteinDisplayStand({ width = 0.56 }: { width?: number }) {
   return (
-    <group name="protein_table" ref={group} position={anchor} userData={identity}>
-      {/* The glassware already on the Blender table fits underneath the raised display. */}
-      {[-0.25, 0.25].flatMap(x => [-0.125, 0.125].map(z =>
+    <group>
+      {[-width / 2 + 0.03, width / 2 - 0.03].flatMap(x => [-0.125, 0.125].map(z =>
         <mesh key={`${x},${z}`} position={[x, 0.041, z]}>
           <cylinderGeometry args={[0.009, 0.012, 0.082, 10]} />
           <meshStandardMaterial color="#455b65" metalness={0.45} roughness={0.34} />
         </mesh>
       ))}
       <mesh position={[0, 0.08, 0]} receiveShadow>
-        <boxGeometry args={[0.56, 0.019, 0.29]} />
+        <boxGeometry args={[width, 0.019, 0.29]} />
         <meshStandardMaterial color="#263d49" roughness={0.48} metalness={0.25} />
       </mesh>
+    </group>
+  )
+}
+
+export default function ProteinTable({ state, anchor }: { state: ProteinTableState; anchor: THREE.Vector3 }) {
+  const group = useRef<THREE.Group>(null)
+  const identity = useMemo(() => ({ pdb: state.protein.pdb, model: state.protein.model }), [state.protein.pdb, state.protein.model])
+  return (
+    <group name="protein_table" ref={group} position={anchor} userData={identity}>
+      <ProteinDisplayStand />
       <mesh position={[0, 0.0905, 0]} rotation={[-Math.PI / 2, 0, 0]} scale={[1.6, 1, 1]}>
         <ringGeometry args={[0.113, 0.118, 48]} />
         <meshBasicMaterial color="#56d4c2" toneMapped={false} />

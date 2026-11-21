@@ -15,6 +15,7 @@ class StudyBrief(Input):
     id: UUID
     brief: Note
     discipline: Discipline
+    case_template: Literal["insulin-lispro-v1"] | None = None
     reaction_steps: int = Field(default=10, ge=2, le=30)
     parallel: bool = False
     start_date: date | None = Field(
@@ -26,6 +27,8 @@ class StudyBrief(Input):
 
     @model_validator(mode="after")
     def check_schedule(self):
+        if self.case_template and self.discipline != "discovery":
+            raise ValueError("เคสอินซูลินใช้กับงานค้นคว้ายา")
         if self.discipline == "stability" and (
             not self.start_date
             or sorted(set(self.months)) != self.months

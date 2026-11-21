@@ -57,7 +57,7 @@ def final_report(row):
             "actor": decision["actor"], "at": decision["at"], "note": decision["message"],
             "steps": steps,
             "records": [e for e in row.events[:decision["sequence"]]
-                        if any(key in e for key in ("result", "pose", "structure", "reviewed_stage", "protein_step"))],
+                        if any(key in e for key in ("result", "pose", "structure", "reviewed_stage", "protein_step", "comparison_step"))],
             "open_questions": [step["title"] for step in steps if step["status"] != "complete"],
         }
     roles = {e["sender"]: e for e in row.events[:decision["sequence"]] if "tool" in e}

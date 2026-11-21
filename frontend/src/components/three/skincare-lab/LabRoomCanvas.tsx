@@ -11,6 +11,7 @@ import type { Role } from './agents/workflow'
 import type { Progress } from './agents/handoffDemo'
 import type { StationBridge } from './station/bridge'
 import ProteinTable, { type ProteinTableState } from './ProteinTable'
+import InsulinComparisonTable, { type InsulinComparisonTableState } from './InsulinComparisonTable'
 import type { ProteinPhase, ProteinWork } from './agents/proteinWork'
 
 // The three-room Ralph Lab from Blender, shown exactly as exported.
@@ -29,6 +30,7 @@ type Props = {
   onHandoff?: (progress: Progress) => void
   onSample?: () => void
   proteinTable?: ProteinTableState | null
+  insulinComparison?: InsulinComparisonTableState | null
   proteinWork?: ProteinWork | null
   onProteinPhase?: (id: string, phase: ProteinPhase) => void
 }
@@ -124,7 +126,8 @@ function Backdrop({ room }: { room: LabRoom }) {
   )
 }
 
-function Room({ onReady, bridge, chatOpen, cameraAgent, onAgentSelect, onStopFollowing, onHandoff, onSample, proteinTable, proteinWork, onProteinPhase }: Props) {
+function Room({ onReady, bridge, chatOpen, cameraAgent, onAgentSelect, onStopFollowing, onHandoff, onSample,
+  proteinTable, insulinComparison, proteinWork, onProteinPhase }: Props) {
   const gltf = useGLTF(MODEL_URL)
   const room = useMemo(() => prepareRoom(gltf), [gltf])
 
@@ -182,16 +185,18 @@ function Room({ onReady, bridge, chatOpen, cameraAgent, onAgentSelect, onStopFol
     return bounds.getCenter(new THREE.Vector3()).setY(bounds.max.y)
   }, [room])
 
+  const tableActive = Boolean(insulinComparison || proteinTable)
   return (
     <>
       <Lights room={room} />
       <Backdrop room={room} />
       <primitive object={room.root} />
-      {proteinTable && <ProteinTable state={proteinTable} anchor={proteinAnchor} />}
+      {insulinComparison ? <InsulinComparisonTable state={insulinComparison} anchor={proteinAnchor} />
+        : proteinTable && <ProteinTable state={proteinTable} anchor={proteinAnchor} />}
       {/* The five agents load after the room is on screen. */}
       <Suspense fallback={null}>
-        <LabAgents room={room} bridge={proteinTable ? undefined : bridge} followed={cameraAgent} onSelect={onAgentSelect} onStopFollowing={onStopFollowing} onHandoff={onHandoff} onSample={proteinTable ? undefined : onSample}
-          proteinActive={Boolean(proteinTable)} proteinWork={proteinWork} onProteinPhase={onProteinPhase} />
+        <LabAgents room={room} bridge={tableActive ? undefined : bridge} followed={cameraAgent} onSelect={onAgentSelect} onStopFollowing={onStopFollowing} onHandoff={onHandoff} onSample={tableActive ? undefined : onSample}
+          proteinActive={tableActive} proteinWork={proteinWork} onProteinPhase={onProteinPhase} />
       </Suspense>
       {/* Restrained grounding shadow under furniture legs; baked once (static room). */}
       <ContactShadows
@@ -204,7 +209,8 @@ function Room({ onReady, bridge, chatOpen, cameraAgent, onAgentSelect, onStopFol
         color="#1c2733"
         frames={1}
       />
-      <CameraRig room={room} chatOpen={chatOpen} followingAgent={cameraAgent !== null} proteinAnchor={proteinTable ? proteinAnchor : null} />
+      <CameraRig room={room} chatOpen={chatOpen} followingAgent={cameraAgent !== null}
+        proteinAnchor={tableActive ? proteinAnchor : null} comparing={Boolean(insulinComparison)} />
     </>
   )
 }

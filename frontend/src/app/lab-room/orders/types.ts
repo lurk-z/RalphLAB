@@ -1,3 +1,8 @@
+import type {
+  ComparisonReport,
+  ComparisonPhase,
+} from "@/components/three/skincare-lab/proteinDesk/ComparisonEvidence";
+
 export type Project = { id: number; name: string; owner: boolean };
 export type Revision = {
   version: string;
@@ -89,6 +94,13 @@ export type Step = {
   status: string;
 };
 export type StudyEvent = Omit<Event, "command"> & {
+  comparison_step?: {
+    run_id: string;
+    phase: ComparisonPhase;
+    version: string;
+    sources: Source[];
+  };
+  comparison_report?: ComparisonReport;
   protein_step?: {
     run_id: string;
     phase: "inspect" | "adjust" | "align" | "verify";
@@ -134,6 +146,7 @@ export type StudyEvent = Omit<Event, "command"> & {
 export type Study = Omit<Order, "request" | "report" | "events"> & {
   request: {
     kind: "study";
+    case_template?: "insulin-lispro-v1";
     brief: string;
     discipline: Discipline;
     version: string;

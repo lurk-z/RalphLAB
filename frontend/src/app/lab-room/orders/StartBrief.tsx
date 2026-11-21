@@ -14,7 +14,9 @@ export default function StartBrief({
   onSave: (item: Case) => void;
 }) {
   const [brief, setBrief] = useState("");
-  const [type, setType] = useState<Discipline | "formula">("discovery");
+  const [type, setType] = useState<Discipline | "formula" | "insulin_case">(
+    "discovery",
+  );
   const [source, setSource] = useState("attach");
   const [endpoint, setEndpoint] = useState("identity");
   const [steps, setSteps] = useState(10);
@@ -33,7 +35,10 @@ export default function StartBrief({
         ? { brief: brief.trim(), source, endpoint }
         : {
             brief: brief.trim(),
-            discipline: type,
+            discipline: type === "insulin_case" ? "discovery" : type,
+            ...(type === "insulin_case" && {
+              case_template: "insulin-lispro-v1",
+            }),
             ...(type === "synthesis" && { reaction_steps: steps, parallel }),
             ...(type === "stability" && {
               start_date: date,
@@ -75,6 +80,9 @@ export default function StartBrief({
                 {label}
               </option>
             ))}
+            <option value="insulin_case">
+              กรณีศึกษา · อินซูลินปกติเทียบกับ lispro
+            </option>
             <option value="formula">เปรียบเทียบสูตรสกินแคร์สองรุ่น</option>
           </select>
         </label>

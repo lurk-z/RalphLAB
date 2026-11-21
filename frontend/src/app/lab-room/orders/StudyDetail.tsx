@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { ROLE_LABEL } from "@/components/three/skincare-lab/agents/roles";
 import { http, apiErrorMessage } from "@/lib/api";
 import ProteinWorkbench from "../protein/ProteinWorkbench";
+import { ComparisonEvidence } from "@/components/three/skincare-lab/proteinDesk/ComparisonEvidence";
 import {
   disciplines,
   states,
@@ -252,11 +253,21 @@ export default function StudyDetail({
     }
   }
   const closed = Boolean(study.report);
+  const literatureCase = Boolean(study.request.case_template);
+  const caseReport = study.events.findLast(
+    (e) => e.comparison_report,
+  )?.comparison_report;
   return (
     <article className="wo-card break-words">
       <h2>{study.request.brief}</h2>
       {study.request.discipline === "discovery" && (
-        <Button asChild className="my-2"><Link href={`/lab-room?project=${study.project_id}&order=${study.id}`}>วางงานบนโต๊ะ 3D</Link></Button>
+        <Button asChild className="my-2">
+          <Link
+            href={`/lab-room?project=${study.project_id}&order=${study.id}`}
+          >
+            วางงานบนโต๊ะ 3D
+          </Link>
+        </Button>
       )}
       <p>
         {disciplines[study.request.discipline]} ·{" "}
@@ -299,6 +310,14 @@ export default function StudyDetail({
           </div>
         ))}
       <h3>แผนและหลักฐานรายขั้น</h3>
+      {caseReport && (
+        <section
+          className="my-3 rounded-lg border p-4"
+          aria-label="รายงานเปรียบเทียบอินซูลิน"
+        >
+          <ComparisonEvidence report={caseReport} phase="conclusion" />
+        </section>
+      )}
       {study.stages.map((s, i) => (
         <details
           key={s.id}
@@ -306,7 +325,11 @@ export default function StudyDetail({
           open={i === 0 || undefined}
         >
           <summary className="cursor-pointer">
-            {s.id} · {s.title} · {states[s.status]}
+            {!literatureCase && s.id + " · "}
+            {s.title} ·{" "}
+            {literatureCase && s.status === "ready"
+              ? "พร้อมทบทวนหลักฐาน"
+              : states[s.status]}
           </summary>
           <p>
             {roles[s.role]}
@@ -333,6 +356,21 @@ export default function StudyDetail({
               <RecordDetail key={e.id} event={e} />
             ))}
           {study.events
+            .filter((e) => e.comparison_step?.phase === s.id)
+            .map((e) => (
+              <div key={e.id} className="my-2 border-l-2 border-teal-600 pl-2">
+                <p>{e.message}</p>
+                {e.comparison_step!.sources.map((src) => (
+                  <div key={src.url}>
+                    <a href={src.url} target="_blank" rel="noreferrer">
+                      {src.title}
+                    </a>{" "}
+                    · {src.locator}
+                  </div>
+                ))}
+              </div>
+            ))}
+          {study.events
             .filter((e) => e.reviewed_stage === s.id)
             .map((e) => (
               <aside key={e.id} className="my-3 rounded-lg bg-muted p-3">
@@ -349,7 +387,7 @@ export default function StudyDetail({
                 ))}
               </aside>
             ))}
-          {owner && !closed && (
+          {owner && !closed && !literatureCase && (
             <Button
               variant="outline"
               disabled={busy}
@@ -358,12 +396,12 @@ export default function StudyDetail({
               ให้ Agent อธิบายหลักฐานผ่าน Groq
             </Button>
           )}
-          {owner && s.status === "ready" && (
+          {owner && !literatureCase && s.status === "ready" && (
             <ResultForm step={s} post={post} busy={busy} />
           )}
         </details>
       ))}
-      {study.request.discipline === "discovery" && (
+      {study.request.discipline === "discovery" && !literatureCase && (
         <section>
           <Button variant="outline" onClick={() => setBench(!bench)}>
             {bench ? "ปิดโต๊ะโปรตีน" : "เปิดโต๊ะโปรตีน 3D ในใบงาน"}

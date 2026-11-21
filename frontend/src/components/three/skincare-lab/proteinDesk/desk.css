@@ -15,6 +15,47 @@
   padding: 0.8rem 1rem;
   font-size: 0.86rem;
 }
+.desk-comparison-ui {
+  position: absolute;
+  z-index: 24;
+  left: 0.8rem;
+  right: 0.8rem;
+  bottom: 0.8rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.7rem;
+  pointer-events: none;
+}
+.desk-comparison-ui > .desk-overlay {
+  position: static;
+  pointer-events: auto;
+  width: min(24rem, 42%);
+  max-height: 40vh;
+}
+.desk-comparison-ui > .desk-evidence {
+  width: min(30rem, 48%);
+  max-height: 42vh;
+}
+@media (max-width: 680px) {
+  .desk-comparison-ui {
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+  .desk-comparison-ui > .desk-overlay {
+    width: 100%;
+    max-height: 19vh;
+    padding: 0.45rem 0.7rem;
+    border-radius: 9px;
+  }
+  .desk-comparison-ui > .desk-evidence {
+    max-height: 21vh;
+  }
+}
 .desk-heading,
 .desk-actions,
 .desk-status,

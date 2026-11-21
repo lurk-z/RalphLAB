@@ -254,6 +254,8 @@ def stages(row):
         for e in row.events
         if e.get("result", {}).get("disposition") == "record"
     }
+    if row.request.get("case_template"):
+        complete.update(e["stage_id"] for e in row.events if "comparison_step" in e)
     result = []
     for step in row.request["stages"]:
         if step["id"] in complete:

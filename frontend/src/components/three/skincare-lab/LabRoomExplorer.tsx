@@ -146,7 +146,7 @@ export default function LabRoomExplorer({ embedded = false, projectId = null, fo
             <LabRoomCanvas onReady={handleReady} bridge={localPreview || atDesk ? undefined : bridge}
               chatOpen={agent !== null} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing}
               onHandoff={demoChat && !atDesk ? setProgress : undefined} onSample={demoChat && !atDesk ? inspectSample : undefined}
-              proteinTable={protein.table} proteinWork={protein.work} onProteinPhase={protein.phase} />
+              proteinTable={protein.table} insulinComparison={protein.comparisonTable} proteinWork={protein.work} onProteinPhase={protein.phase} />
           </div>
           {desk && deskSignedIn ? <ProteinDeskPanel binding={desk} desk={protein} /> : atDesk ?
             <DeskLauncher signedIn={deskSignedIn} localLogin={deskLocalLogin}

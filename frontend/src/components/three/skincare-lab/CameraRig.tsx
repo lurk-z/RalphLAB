@@ -10,6 +10,7 @@ import type { LabRoom } from './plainRoom'
 // Start on an elevated three-quarter view of the whole room.
 const OVERVIEW_DIRECTION = new THREE.Vector3(0.5, 0.72, 1).normalize()
 const BENCH_DIRECTION = new THREE.Vector3(0.96, 0.73, 0.76).normalize()
+const COMPARISON_DIRECTION = new THREE.Vector3(0.26, 0.68, 1).normalize()
 const FRAME_FILL = 0.88
 const OVERVIEW_TRANSITION_SECONDS = 0.6
 
@@ -21,11 +22,12 @@ type OverviewTransition = {
   toPosition: THREE.Vector3
 }
 
-export default function CameraRig({ room, chatOpen, followingAgent, proteinAnchor }: {
+export default function CameraRig({ room, chatOpen, followingAgent, proteinAnchor, comparing }: {
   room: LabRoom
   chatOpen: boolean
   followingAgent: boolean
   proteinAnchor: THREE.Vector3 | null
+  comparing: boolean
 }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const { width, height } = useThree((s) => s.size)
@@ -33,6 +35,7 @@ export default function CameraRig({ room, chatOpen, followingAgent, proteinAncho
   const framedCamera = useRef<THREE.PerspectiveCamera | null>(null)
   const previousChatOpen = useRef(chatOpen)
   const previousBench = useRef<THREE.Vector3 | null>(null)
+  const previousComparing = useRef(comparing)
   const framedSize = useRef({ width: 0, height: 0 })
   const transition = useRef<OverviewTransition | null>(null)
 
@@ -42,8 +45,8 @@ export default function CameraRig({ room, chatOpen, followingAgent, proteinAncho
     // Include the agent's approach in the desk framing. Orbit controls remain free
     // after this first framing, including while individual protein poses change.
     const focusBounds = proteinAnchor ? new THREE.Box3(
-      proteinAnchor.clone().add(new THREE.Vector3(-0.57, -0.34, -0.24)),
-      proteinAnchor.clone().add(new THREE.Vector3(0.57, 0.72, 0.60))
+      proteinAnchor.clone().add(comparing ? new THREE.Vector3(-0.47, -0.34, -0.20) : new THREE.Vector3(-0.57, -0.34, -0.24)),
+      proteinAnchor.clone().add(comparing ? new THREE.Vector3(0.47, 0.66, 0.44) : new THREE.Vector3(0.57, 0.72, 0.60))
     ) : room.bounds
     const focus = focusBounds.getCenter(new THREE.Vector3())
     const corners: THREE.Vector3[] = []
@@ -57,7 +60,7 @@ export default function CameraRig({ room, chatOpen, followingAgent, proteinAncho
     const targetBox = room.bounds.clone().expandByScalar(maxDim * 0.2)
     targetBox.min.y = room.bounds.min.y // never pivot below the floor slab
     return { center: focus, corners, radius, maxDim, targetBox }
-  }, [room, proteinAnchor])
+  }, [room, proteinAnchor, comparing])
 
   const aspect = width > 0 && height > 0 ? width / height : 1
   const tanVertical = FRAME_FILL * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2)
@@ -78,8 +81,9 @@ export default function CameraRig({ room, chatOpen, followingAgent, proteinAncho
     const chatClosed = previousChatOpen.current && !chatOpen
     previousChatOpen.current = chatOpen
     if (width <= 0 || height <= 0) return
-    const benchChanged = previousBench.current !== proteinAnchor
+    const benchChanged = previousBench.current !== proteinAnchor || previousComparing.current !== comparing
     previousBench.current = proteinAnchor
+    previousComparing.current = comparing
 
     const initialFrame = framedCamera.current !== camera
     const sizeChanged = framedSize.current.width !== width || framedSize.current.height !== height
@@ -94,7 +98,7 @@ export default function CameraRig({ room, chatOpen, followingAgent, proteinAncho
     const controls = controlsRef.current
     const direction = !initialFrame && !benchChanged && controls
       ? camera.position.clone().sub(controls.target).normalize()
-      : proteinAnchor ? BENCH_DIRECTION : OVERVIEW_DIRECTION
+      : comparing ? COMPARISON_DIRECTION : proteinAnchor ? BENCH_DIRECTION : OVERVIEW_DIRECTION
     framedCamera.current = camera
 
     // Compute the new view without moving the live camera before the animation starts.
@@ -125,7 +129,7 @@ export default function CameraRig({ room, chatOpen, followingAgent, proteinAncho
       controls.update()
     } else camera.lookAt(center)
     camera.updateMatrixWorld()
-  }, [camera, center, corners, width, height, tanHorizontal, tanVertical, chatOpen, followingAgent, proteinAnchor])
+  }, [camera, center, corners, width, height, tanHorizontal, tanVertical, chatOpen, followingAgent, proteinAnchor, comparing])
 
   // Keep the orbit pivot near the room so panning can't lose the scene.
   useFrame((_, deltaTime) => {

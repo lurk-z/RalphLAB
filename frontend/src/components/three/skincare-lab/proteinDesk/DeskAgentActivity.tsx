@@ -13,7 +13,7 @@ export default function DeskAgentActivity({
   onClose: () => void;
 }) {
   const events = study.events
-    .filter((e) => e.sender === role && e.protein_step)
+    .filter((e) => e.sender === role && (e.protein_step || e.comparison_step))
     .slice()
     .reverse();
   return (
@@ -36,6 +36,25 @@ export default function DeskAgentActivity({
       {events.length ? (
         <ol className="space-y-3">
           {events.map((e) => {
+            if (e.comparison_step)
+              return (
+                <li key={e.id} className="rounded-lg border p-3 text-sm">
+                  <strong>{e.message}</strong>
+                  {e.comparison_step.sources.map((s) => (
+                    <p className="mt-1" key={s.url}>
+                      <a
+                        className="text-teal-800 underline"
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {s.title}
+                      </a>{" "}
+                      · {s.locator}
+                    </p>
+                  ))}
+                </li>
+              );
             const step = e.protein_step!;
             return (
               <li key={e.id} className="rounded-lg border p-3 text-sm">

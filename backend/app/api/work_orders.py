@@ -19,6 +19,7 @@ from app.services.work_orders import dispatch, final_report, record
 from app.schemas.study import StageResult, StudyBrief
 from app.services.studies import assess, build_plan, stages
 from app.services.protein import INSULIN, MODELS, PROTEIN, ProteinPose, ProteinRun, alignment_frames, score
+from app.services import insulin_case
 
 router = APIRouter()
 
@@ -147,23 +148,32 @@ def insulin_reference():
     return INSULIN
 
 
+@router.get("/protein/comparisons/insulin-lispro-v1")
+def insulin_comparison():
+    return {"report": insulin_case.comparison_summary(),
+            "structures": insulin_case.STRUCTURE_COMPARISON["structures"]}
+
+
 @router.post("/projects/{project_id}/studies")
 def start_study(project_id: int, body: StudyBrief, user: CurrentUser = Depends(get_current_user),
                 db: Session = Depends(get_db)):
     access(db, user, project_id, write=True)
     intake = body.model_dump(mode="json")
+    if not body.case_template:
+        intake.pop("case_template", None)  # Existing intake snapshots predate named cases.
     row = db.get(WorkOrder, (project_id, str(body.id)))
     if row is not None:
         if row.request.get("kind") != "study" or row.events[0].get("intake") != intake:
             raise HTTPException(409, "รหัสนี้ใช้กับโจทย์อื่นแล้ว")
         return output(row)
-    plan = build_plan(body)
+    plan = insulin_case.plan() if body.case_template else build_plan(body)
     row = WorkOrder(project_id=project_id, id=str(body.id), state="in_progress", events=[],
                     request={"kind": "study", "version": "R1", "brief": body.brief,
-                             "discipline": body.discipline, "stages": plan})
+                             "discipline": body.discipline, "stages": plan,
+                             **({"case_template": body.case_template} if body.case_template else {})})
     record(row, "head", "director", body.brief, actor=user.id, intake=intake)
     record(row, "director", "head", "จัดแผนและเลือกเอกสารอ้างอิงตามประเภทงาน", stage_ids=[s["id"] for s in plan])
-    if body.discipline == "discovery":
+    if body.discipline == "discovery" and not body.case_template:
         keywords = [(PROTEIN, ("gfp", "1ema", "green fluorescent protein", "โปรตีนเรืองแสง")),
                     (INSULIN, ("insulin", "อินซูลิน", "3i40"))]
         for model, names in keywords:
@@ -201,6 +211,8 @@ def replay(row, command):
 def stage_result(project_id: int, order_id: UUID, stage_id: str, body: StageResult,
                  user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     row = study_for_update(db, user, project_id, order_id)
+    if row.request.get("case_template"):
+        raise HTTPException(409, "เปิดการเปรียบเทียบบนโต๊ะเพื่อบันทึกหลักฐานจากเคสนี้")
     data = body.model_dump(mode="json")
     command = {"stage": stage_id, **data}
     if replay(row, command):
@@ -219,8 +231,34 @@ def stage_result(project_id: int, order_id: UUID, stage_id: str, body: StageResu
 
 
 def require_open_protein_study(row):
-    if row.request["discipline"] != "discovery" or row.state not in {"in_progress", "awaiting_approval"}:
+    if row.request.get("case_template") or row.request["discipline"] != "discovery" or row.state not in {"in_progress", "awaiting_approval"}:
         raise HTTPException(409, "ใช้โต๊ะโปรตีนได้ในใบงานพัฒนายาที่ยังเปิดอยู่")
+
+
+class ComparisonRun(Input):
+    id: UUID
+    expected_sequence: int = Field(ge=1)
+
+
+@router.post("/projects/{project_id}/orders/{order_id}/insulin-comparisons")
+def run_insulin_comparison(project_id: int, order_id: UUID, body: ComparisonRun,
+                          user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = study_for_update(db, user, project_id, order_id)
+    command = {**body.model_dump(mode="json"), "case": insulin_case.VERSION}
+    if replay(row, command):
+        return output(row)
+    if row.request.get("case_template") != insulin_case.VERSION or row.state != "in_progress":
+        raise HTTPException(409, "เคสนี้ยังไม่เปิดรับการเปรียบเทียบหรือบันทึกผลแล้ว")
+    for sender, recipient, message, step, report in insulin_case.run_steps(body.id):
+        details = {}
+        if step["phase"] == "structures":
+            details.update(command=command, requested_by=user.id)
+        if report:
+            details["comparison_report"] = report
+        record(row, sender, recipient, message, comparison_step=step, stage_id=step["phase"], **details)
+    row.state = "awaiting_approval"
+    db.commit()
+    return output(row)
 
 
 @router.post("/projects/{project_id}/orders/{order_id}/protein-runs")
