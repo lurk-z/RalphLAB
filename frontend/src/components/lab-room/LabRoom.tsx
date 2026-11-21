@@ -7,22 +7,20 @@ import SceneBoundary from '@/components/three/skincare-lab/SceneBoundary'
 import StationPanel from '@/components/three/skincare-lab/station/StationPanel'
 import { createStationBridge } from '@/components/three/skincare-lab/station/bridge'
 import { ROLE_LABEL, WORKBENCH_ROLE_LABEL, roleGuide } from '@/components/three/skincare-lab/agents/roles'
-import { HANDOFFS, type Progress } from '@/components/three/skincare-lab/agents/handoffDemo'
 import type { Role } from '@/components/three/skincare-lab/agents/workflow'
 import LabAgentChat from '@/components/three/skincare-lab/chat/LabAgentChat'
 import { useLabAgentChat } from '@/components/three/skincare-lab/chat/useLabAgentChat'
 import { useAgentDemo } from '@/components/three/skincare-lab/chat/useAgentDemo'
-import ResearchDemoPanel from '@/components/three/skincare-lab/chat/ResearchDemoPanel'
 import { DeskLauncher, ProteinDeskPanel } from '@/components/three/skincare-lab/proteinDesk/ProteinDeskPanel'
 import DeskAgentActivity from '@/components/three/skincare-lab/proteinDesk/DeskAgentActivity'
 import { useProteinDesk } from '@/components/three/skincare-lab/proteinDesk/useProteinDesk'
-import { chatAgentStatuses, demoAgentStatuses } from '@/lib/lab-demo/agent-status'
+import { chatAgentStatuses } from '@/lib/lab-demo/agent-status'
 import { messageJobId, type DemoScreen } from '@/lib/lab-demo/conversations'
 import { groupThreadId } from '@/lib/lab-demo/events'
 import type { MessageRef } from '@/lib/lab-graph/model'
 import { loadLabScreen, openLabAtMessage, saveLabScreen, saveReadingThread } from '@/lib/lab-graph/view-memory'
 import {
-  contextKey, contextLabel, DEMO_STUDY, parseRoomQuery, roomHref, TIMED_FIXTURE, withView,
+  contextKey, contextLabel, parseRoomQuery, roomHref, TIMED_FIXTURE, withView,
   type RoomState, type RoomView,
 } from '@/lib/lab-room/route'
 import { LabFormulaBox } from '@/components/three/skincare-lab/chat/FormulaProposalCard'
@@ -106,12 +104,8 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
   const setView = (view: RoomView) => go(withView(room, view, agent))
   const [cameraAgent, setCameraAgent] = useState<Role | null>(initial.view === 'room' ? initial.agent : null)
   const [chatWidth, setChatWidth] = useState(400)
-  const [demoChat, setDemoChat] = useState(false)
-  // The D01 handoff simulation runs only when D01 is the selected work context.
-  const [agentDemoOn, setAgentDemoOn] = useState(context.kind === 'demo')
   const [demoScreen, setDemoScreen] = useState<DemoScreen>(restored?.agent === initial.agent && restored ? restored.screen : { kind: 'private' })
   const agentDemo = useAgentDemo(projectId)
-  const [progress, setProgress] = useState<Progress>()
   const [sampleOpen, setSampleOpen] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const lastThreads = useRef(new Map<string, string | null>())
@@ -120,12 +114,10 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
   const roleSelect = useRef<HTMLSelectElement>(null)
   const drag = useRef<{ pointerId: number; x: number; width: number; maxWidth: number; nextWidth: number } | null>(null)
   const resizeFrame = useRef(0)
-  const chatScope = JSON.stringify([memoryKey, agentDemo.userId, agentDemoOn ? 'demo' : demoChat ? 'scripted' : 'api', agent])
-  const chat = useLabAgentChat(projectId, agentDemo.userId, demoChat, progress)
-  const statuses = useMemo(() => agentDemoOn
-    ? demoAgentStatuses(agentDemo.state)
-    : chatAgentStatuses(chat.threads, chat.pending, chat.activity),
-    [agentDemoOn, agentDemo.state, chat.threads, chat.pending, chat.activity])
+  const chatScope = JSON.stringify([memoryKey,viewer,agent])
+  const chat = useLabAgentChat(projectId, viewer)
+  const statuses = useMemo(() => chatAgentStatuses(chat.threads, chat.pending, chat.activity),
+    [chat.threads, chat.pending, chat.activity])
   const [bridge] = useState(createStationBridge)
   const chatOpen = agent !== null
   const graphOpen = room.view === 'graph'
@@ -143,28 +135,15 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
     setCameraAgent(role)
     go(withView(room, 'room', role))
   }, [go, room])
-  const inspectSample = useCallback(() => {
-    selectAgent('analyst')
-    setCameraAgent(null)
-    setSampleOpen((value) => value + 1)
-  }, [selectAgent])
   const stopFollowing = useCallback(() => setCameraAgent(null), [])
   const handleReady = useCallback(() => setReady(true), [])
   useEffect(() => saveLabScreen(memoryKey, { agent, screen: demoScreen }), [memoryKey, agent, demoScreen])
   const rememberThread = useCallback((role: Role, threadId: string) => saveReadingThread(memoryKey, role, threadId), [memoryKey])
-  // A reload continues the D01 run where it stopped (never an approval).
-  const resumeRun = agentDemo.resume
-  const demoReady = agentDemo.ready
-  useEffect(() => { if (agentDemoOn && demoReady) resumeRun() }, [agentDemoOn, demoReady, resumeRun, agentDemo.scopeKey])
   useEffect(() => { if (chatOpen) panelRef.current?.focus({ preventScroll: true }) }, [chatOpen])
   // Under the full-width graph the room is neither focusable nor read out, but stays mounted.
   useEffect(() => { splitRef.current?.toggleAttribute('inert', room.view !== 'room') }, [room.view])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const scripted = params.get('demoChat') === '1'
-    setDemoChat(scripted)
-    if (initial.context.kind === 'demo' && params.has('agentDemo')) setAgentDemoOn(params.get('agentDemo') === '1')
     try {
       const value = Number(window.localStorage.getItem(CHAT_WIDTH_KEY))
       if (value >= CHAT_MIN_WIDTH && value <= CHAT_MAX_WIDTH) setChatWidth(value)
@@ -172,16 +151,6 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
     return () => window.cancelAnimationFrame(resizeFrame.current)
   }, [])
 
-  function chooseChatMode(mode: 'demo' | 'api') {
-    // The simulated handoff chat belongs to the D01 study.
-    if (mode === 'demo' && context.kind !== 'demo') {
-      go({ ...room, view: 'room', context: { kind: 'demo', study: DEMO_STUDY, projectId } })
-      return
-    }
-    setAgentDemoOn(mode === 'demo')
-    setDemoChat(false)
-    setDemoScreen({ kind: 'private' })
-  }
 
   // ---- graph ↔ room ------------------------------------------------------------------------
   const openGraph = useCallback((role?: Role | null) => go(withView(room, 'graph', role ?? null)), [go, room])
@@ -233,7 +202,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
   function rolePicker(inControls: boolean) {
     return <div className="relative min-w-0 flex-1">
       <select ref={inControls ? roleSelect : undefined} aria-label={deskStudy ? 'ดูงานของ Agent' : 'เลือกงานและผู้เชี่ยวชาญ'}
-        value={!deskStudy && agentDemoOn && demoScreen.kind !== 'private' ? '' : agent ?? ''} onChange={(event) => selectAgent(event.target.value as Role)}
+        value={agent ?? ''} onChange={(event) => selectAgent(event.target.value as Role)}
         className="h-11 w-full appearance-none truncate rounded-xl bg-teal-800 pl-3 pr-9 text-sm font-semibold text-white hover:bg-teal-900 focus-visible:ring-2 focus-visible:ring-teal-600">
         <option disabled value="">{deskStudy ? 'ดูงานของ Agent' : 'เลือกงานและผู้เชี่ยวชาญ'}</option>
         {(Object.keys(ROLE_LABEL) as Role[]).map((role) => <option key={role} value={role}>
@@ -263,7 +232,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
             setAgent(role)
             if (deskStudy) return
             setCameraAgent(null)
-            if (agentDemoOn) setDemoScreen({ kind: 'inbox' })
+            setDemoScreen({ kind: 'private' })
           })}
           {headerAction('graph', 'กราฟการทดลอง', Network, () => openGraph(null))}
           {headerAction('tools', 'เครื่องมือแล็บ', Wrench, () => setView(room.view === 'tools' ? 'room' : 'tools'))}
@@ -280,18 +249,12 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
                   <LabRoomCanvas workbench statuses={statuses} onReady={handleReady} paused={graphOpen}
                     bridge={localPreview || atDesk ? undefined : bridge}
                     chatOpen={chatOpen} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing}
-                    onHandoff={demoChat && !atDesk ? setProgress : undefined} onSample={demoChat && !atDesk ? inspectSample : undefined}
                     proteinTable={protein.table} insulinComparison={protein.comparisonTable} proteinWork={protein.work} onProteinPhase={protein.phase} />
                   {!ready && <div role="status" className="pointer-events-none absolute inset-0 grid place-items-center bg-[#c9d5df] text-sm text-slate-500">กำลังโหลดห้องแล็บ</div>}
                 </SceneBoundary>
               </div>
               {desk && deskSignedIn ? <ProteinDeskPanel binding={desk} desk={protein} />
                 : deskLauncher ? <DeskLauncher projectId={projectId} signedIn={deskSignedIn} localLogin={deskLocalLogin} />
-                : demoChat && progress ? (
-                  <button type="button" onClick={() => selectAgent(HANDOFFS[progress.index].from)} className="absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] rounded-xl bg-white/95 px-3 py-2 text-left text-xs shadow-sm">
-                    <span className="block text-teal-700">โครงการจำลอง D01 · {progress.index + 1}/{HANDOFFS.length}</span>
-                    {HANDOFFS[progress.index].title} · {progress.delivered ? 'ส่งถึงแล้ว' : 'กำลังส่ง'}
-                  </button>)
                 : room.tool === 'station' && !localPreview ? <StationPanel bridge={bridge} /> : null}
               {context.kind === 'timed' && room.view === 'room' && <div className="lab-room-card">
                 <TimedStudySummary studyId={context.studyId} fixture={context.fixture} timed={timed} onOpenGraph={() => openGraph(null)} />
@@ -310,18 +273,9 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
               </div>
               <div className="lab-room-actions">
                 {rolePicker(true)}
-                {agentDemoOn && !deskStudy && <button type="button" className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-teal-600" onClick={() => {
-                  const role = agent ?? 'director'
-                  setAgent(role)
-                  go(withView(room, 'room', role))
-                  setCameraAgent(null)
-                  setDemoScreen({ kind: 'inbox' })
-                }}><MessageCircle aria-hidden="true" className="size-4 text-teal-800" />รายการแชต</button>}
-                {context.kind === 'demo' && agentDemoOn && <ResearchDemoPanel demo={agentDemo}
-                  onOpenStudyLead={() => selectAgent('director')}
-                  onOpenRequest={(role, threadId, messageId) => selectAgent(role, threadId, messageId)}
-                  onReset={() => selectAgent(null)} />}
+                <button type="button" className="lab-room-chip" onClick={() => selectAgent('director')}><MessageCircle className="size-4" />แชตหัวหน้าแล็บ</button>
               </div>
+              <a className="lab-room-chip self-start" href={projectId ? `/assess?tab=assess&projectId=${projectId}` : '/assess?tab=assess'}>ทดสอบสารด้วยตัวเอง</a>
             </div>
           </div>
           {agent && (
@@ -348,15 +302,14 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
                   stopFollowing()
                   commitWidth(Math.max(CHAT_MIN_WIDTH, Math.min(maxChatWidth(), width + direction * 24)))
                 }} />
-              {deskStudy ? <DeskAgentActivity study={deskStudy} role={agent} onClose={() => selectAgent(null)} onOpenGraph={(role) => openGraph(role)} />
+              {deskStudy && agent !== 'director' ? <DeskAgentActivity study={deskStudy} role={agent} onClose={() => selectAgent(null)} onOpenGraph={(role) => openGraph(role)} />
                 : <LabFormulaBox.Provider value={studio.box}><LabAgentChat key={JSON.stringify([chatScope, demoScreen.kind, demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId : null])}
                   chatScope={chatScope} drafts={drafts} setDrafts={setDrafts} lastThreads={lastThreads.current}
-                  agent={agent} formula={demoChat || agentDemoOn || context.kind === 'demo' ? undefined : studio.formula} chat={chat} onSelectAgent={selectAgent} onClose={() => {
+                  agent={agent} formula={context.kind === 'demo' ? undefined : studio.formula} chat={chat} onSelectAgent={selectAgent} onClose={() => {
                     selectAgent(null)
                     requestAnimationFrame(() => roleSelect.current?.focus({ preventScroll: true }))
-                  }} progress={demoChat ? progress : undefined}
-                  onModeChange={chooseChatMode}
-                  sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen}
+                  }}
+                  sampleOpen={sampleOpen} screen={demoScreen} navigate={setDemoScreen}
                   onOpenGraph={(role) => openGraph(role)} onReadingThread={rememberThread} /></LabFormulaBox.Provider>}
             </div>
           )}
@@ -378,7 +331,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
             ? <TimedStudySummary studyId={context.studyId} fixture={context.fixture} timed={timed} onOpenGraph={() => openGraph(null)} />
             : <section className="space-y-2">
               <h3 className="text-sm font-semibold text-slate-800">ใบงานตามเวลา</h3>
-              <a className="lab-room-chip" href={`/lab-room?view=tools&study=${TIMED_FIXTURE}`}>ตัวอย่าง “ติดตามการเปลี่ยนสี” · ข้อมูลจำลอง</a>
+              <a className="lab-room-chip" href={projectId ? "/lab-room/timed?project="+projectId : "/lab-room/timed"}>เปิดงานติดตามของโปรเจกต์</a>
             </section>}
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-slate-800">ในห้องนี้</h3>
@@ -387,7 +340,6 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
                 onClick={() => go({ ...room, view: 'room', tool: room.tool === 'station' ? null : 'station' })}>สถานีทดสอบสูตร</button>
               <button type="button" className="lab-room-chip" aria-pressed={room.tool === 'protein'}
                 onClick={() => go({ ...room, view: 'room', tool: room.tool === 'protein' ? null : 'protein' })}>งานโปรตีนบนโต๊ะ</button>
-              <a className="lab-room-chip" href={`/lab-room?demo=${DEMO_STUDY}${projectId ? `&projectId=${projectId}` : ''}`}>ตัวอย่าง D01 · ข้อมูลจำลอง</a>
             </div>
           </section>
           <section className="space-y-2">

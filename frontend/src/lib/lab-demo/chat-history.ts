@@ -3,7 +3,8 @@ import { isChatAssessment, type ChatAssessment } from "./chat-assessment.ts";
 import { scopeKey, type AgentRole, type DemoScope, type LabDemoState } from "./events.ts";
 import { readFormulaProposal, type FormulaProposal } from "./formula-proposal.ts";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; time: number; publicSteps?: string[]; startedAt?: number; assessment?: ChatAssessment; receipt?: boolean; proposals?: FormulaProposal[]; proposalMessageId?: string };
+import type { LabLink } from "../lab-room/chat-tools.ts";
+type Message = { labLink?: LabLink; id: string; role: "user" | "assistant"; text: string; time: number; publicSteps?: string[]; startedAt?: number; assessment?: ChatAssessment; receipt?: boolean; proposals?: FormulaProposal[]; proposalMessageId?: string };
 export function publicSteps(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).slice(0, 30).map(v => v.slice(0, 500)) : [];
 }

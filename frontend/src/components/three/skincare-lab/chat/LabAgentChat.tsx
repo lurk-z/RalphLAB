@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import Image from 'next/image'
 import { ArrowLeft, ArrowUp, Check, ChevronDown, CircleCheck, FlaskConical, History, Mic, Network, Search, SquarePen, Trash2 } from 'lucide-react'
 import AssessmentReply from './AssessmentReply'
+import { labHref } from '@/lib/lab-room/chat-tools'
 import { assessmentText } from '@/lib/lab-demo/chat-assessment'
 import { ASSISTANT_TYPING_INTERVAL_MS, assistantTypingFrames } from '@/lib/assistant-typing'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -74,12 +75,13 @@ function ChatMessages({ messages }: { messages: Thread['messages'] }) {
         : message.text && <ReplyText text={message.text} animate={!existingReplies.has(message.id)} />}
       {message.assessment && <AssessmentReply data={message.assessment} />}
       {message.proposals?.map((proposal, index) => <FormulaProposalCard key={index} id={`${message.proposalMessageId ?? message.id}:${index}`} proposal={proposal} />)}
+      {labHref(message.labLink) && <a className="my-2 inline-block font-semibold text-teal-800 underline" href={labHref(message.labLink)}>เปิด{({orders:"ใบงาน Agent",protein:"โต๊ะโปรตีน 3D",timed:"งานติดตามตามเวลา",self_test:"หน้าทดสอบสารด้วยตัวเอง"})[message.labLink!.target]}</a>}
       {!message.receipt && <MessageMeta text={message.assessment ? message.text + '\n' + assessmentText(message.assessment) : message.text} time={message.time} />}
     </article>
   ))
 }
 
-export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onClose, onModeChange, progress, sampleOpen, agentDemo, screen, navigate, drafts, setDrafts, lastThreads, chatScope, onOpenGraph, onReadingThread }: {
+export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onClose,  progress, sampleOpen, agentDemo, screen, navigate, drafts, setDrafts, lastThreads, chatScope, onOpenGraph, onReadingThread }: {
   drafts: Record<string, string>
   setDrafts: Dispatch<SetStateAction<Record<string, string>>>
   lastThreads: Map<string, string | null>
@@ -89,7 +91,6 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   chat: ReturnType<typeof useLabAgentChat>
   onSelectAgent: (agent: Role, threadId?: string) => void
   onClose: () => void
-  onModeChange: (mode: 'demo' | 'api') => void
   progress?: Progress
   sampleOpen: number
   /** Standard Lab conversations share the project workflow's simulated events. */
@@ -291,18 +292,13 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   </>
   const starter = agentDemo
     ? agent === 'analyst' ? 'ช่วยตรวจสี่ด้านของ V1' : 'เปิดโครงการลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด'
-    : chat.demo ? 'ตอนนี้ทีมกำลังทำอะไรอยู่?' : roleGuide[agent].question
+    : roleGuide[agent].question
 
   return (
     <section aria-label={`แชตกับ ${job?.title ?? name}`} className="flex h-full min-h-0 flex-col bg-white text-slate-900">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 border-b bg-slate-50 px-3 text-xs">
         <button type="button" onClick={onClose} className="inline-flex min-h-11 items-center gap-1 font-medium text-teal-800"><ArrowLeft className="size-4" />กลับห้องแล็บ</button>
-        {chat.demo ? <span>คำตอบจำลอง</span> :
-          <select aria-label="โหมดแชต" value={agentDemo ? 'demo' : 'api'} disabled={busy || listening}
-            onChange={event => onModeChange(event.target.value === 'api' ? 'api' : 'demo')}
-            className="min-h-11 max-w-full bg-transparent font-medium text-slate-700">
-            <option value="demo">ทดลองการทำงานของทีม · คำตอบจำลอง</option><option value="api">ถามผู้ช่วย AI</option>
-          </select>}
+        <span>OpenAI · โปรเจกต์นี้</span>
       </div>
       <Popover open={openMenu === 'history'} onOpenChange={(open) => {
         setOpenMenu((menu) => open ? 'history' : menu === 'history' ? null : menu)
@@ -396,7 +392,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
           )}
           {agentDemo && priorMessages.length > 0 && <ChatMessages key={`archive-${thread?.id}`} messages={priorMessages} />}
           {agentDemo ? <AgentDemoThread key={demoThread} demo={agentDemo} threadId={demoThread} job={job} highlightId={highlightId} onOpenAgent={onSelectAgent} onOpenGroup={(jobId, messageId) => navigate({ kind: 'group', jobId, highlightId: messageId })} /> : thread && <ChatMessages key={thread.id} messages={thread.messages} />}
-          {thread && busy && !agentDemo && <ChatActivity label={chat.demo ? 'กำลังเตรียมคำตอบจำลอง…' : 'กำลังทำงาน…'}>
+          {thread && busy && !agentDemo && <ChatActivity label={'กำลังรอ OpenAI…'}>
             <ol aria-live="polite">{chat.activity[thread.id]?.map((step, index) => <li key={index}>{step}</li>)}</ol>
           </ChatActivity>}
           {failed && !agentDemo && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">{failed} <button type="button" className="ml-1 font-semibold underline" disabled={listening} onClick={() => send(true)}>ลองอีกครั้ง</button></div>}

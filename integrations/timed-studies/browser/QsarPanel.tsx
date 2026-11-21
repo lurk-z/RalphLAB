@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 
 type Mix = {cid:number; percent:number};
 type Outcome = {label_th:string;peak_score:number;band:string;confidence:string;in_domain:boolean;model_versions:string[]};
-type Job = {id:string;state:string;issue:string|null;report:string|null;tool_called:boolean;mode:string;
+export type QsarJob = {id:string;state:string;issue:string|null;report:string|null;tool_called:boolean;mode:string;
   formula:{region:string;ingredients:Mix[]};
   result:{engine:string;endpoints:Record<string,Outcome>;ingredients:{cid:number;name:string;percent:number}[]}|null};
+type Job = QsarJob;
 const path="/api/lab/qsar";
 const states:Record<string,string>={preparing:"กำลังขอให้ OpenAI เรียกเครื่องมือ",queued:"รอเครื่องคำนวณของ RalphLAB",running:"กำลังรันโมเดล QSAR",complete:"คำนวณเสร็จแล้ว",failed:"คำนวณไม่สำเร็จ"};
 async function request(url:string,body?:object) {

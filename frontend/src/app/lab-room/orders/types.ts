@@ -65,7 +65,7 @@ export type Order = {
 };
 export type PendingOrder = Omit<Order, "state" | "request"> & {
   state: "awaiting_inputs";
-  request: { brief: string; endpoint: string };
+  request: { brief: string; endpoint: string; kind?: string; draft?: string; assignee?: string };
 };
 export const disciplines = {
   synthesis: "สังเคราะห์สารหลายขั้นตอน",

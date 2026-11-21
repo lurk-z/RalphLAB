@@ -58,6 +58,12 @@ npm run dev
 - **GOD** เป็นสาขาของหัวหน้าทีม รับผิดชอบงานส่วนที่ 1 ได้แก่ ระบบ Agent กฎส่งใบงานระหว่างบทบาท จุดรออนุมัติ และการเชื่อม QSAR ในภายหลัง ใช้ `git switch GOD` หลัง clone
 - สมาชิกที่มีสิทธิ์เขียนสร้างสาขาจาก main ด้วย `git switch -c feature/<ชื่องาน> origin/main` แล้ว `git push -u origin HEAD` สมาชิกทั่วไปให้ **Fork** ก่อน แล้ว clone จาก fork ของตัวเอง สร้างและ push สาขาไปที่ fork จากนั้นเปิด pull request ไปยัง `lurk-z/RalphLAB:main`
 
+## แชตแล็บและหน้าทดสอบสาร
+
+แชตทั้งห้าบทบาทอ่านบริบทของโปรเจกต์ผ่าน OpenAI Responses API หัวหน้าแล็บสร้างใบงาน เปิดโต๊ะโปรตีน และตั้งรอบติดตามจากแชตได้ เว็บ Cloud อ่าน `OPENAI_API_KEY` จาก Sites ส่วนแอป Next.js ใช้ `RALPHLAB_CHAT_RELAY_TOKEN` ซึ่งต้องตั้งเป็น secret ค่าเดียวกันใน Sites และ `frontend/.env.local` ของเซิร์ฟเวอร์
+
+ปุ่ม **ทดสอบสารด้วยตัวเอง** ใต้แชตเปิด Studio ในแอป GitHub และเปิดหน้าสูตร QSAR ของโปรเจกต์บน Cloud โมเดลใบหน้า ระบบแปรง และการแสดงผลบนผิวสืบทอดจาก RalphGuard สาขา jay-frontend ที่ระบุด้านบน ส่วนที่เพิ่มคือการเชื่อมผลคำนวณของสูตรกับโมเดลบน Cloud และการแยกรอยระบายตามบัญชี โปรเจกต์ และสูตร
+
 ## สถานะ QSAR
 
 ค่าเริ่มต้นคือ `ASSESSMENT_EXECUTION_MODE=disabled` ในโหมดนี้ Compose เริ่มเฉพาะ PostgreSQL และ API หน้า Studio และ Node Graph อ่านสถานะจาก `GET /api/assessments/availability` ปุ่มประเมินแสดงว่าปิดอยู่ การส่งงานใหม่เข้า API ได้ HTTP 503 ก่อนสร้าง job ลงฐานข้อมูลหรือเข้าคิว ทีมยังแก้สูตรและเปิดผลเก่าที่มีสิทธิ์อ่านได้

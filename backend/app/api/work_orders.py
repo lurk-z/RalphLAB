@@ -5,7 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import Field
+from pydantic import BaseModel, Field
 from sqlalchemy import JSON, cast, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -106,6 +106,33 @@ def get_order(project_id: int, order_id: UUID, user: CurrentUser = Depends(get_c
     row = db.get(WorkOrder, (project_id, str(order_id)))
     if row is None:
         raise HTTPException(404, "ไม่พบใบงาน")
+    return output(row)
+
+
+class DirectorBrief(BaseModel):
+    id: UUID
+    title: str = Field(min_length=1, max_length=240)
+    draft: str = Field(min_length=1, max_length=7000)
+    assignee: Literal["researcher", "formulator", "analyst", "evaluator"]
+
+
+@router.post("/projects/{project_id}/director-briefs")
+def director_brief(project_id: int, body: DirectorBrief, user: CurrentUser = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    access(db, user, project_id, write=True)
+    intake = body.model_dump(mode="json")
+    row = db.get(WorkOrder, (project_id, str(body.id)))
+    if row:
+        if row.events[0].get("intake") != intake:
+            raise HTTPException(409, "รหัสนี้ใช้กับโจทย์อื่นแล้ว")
+        return output(row)
+    row = WorkOrder(project_id=project_id, id=str(body.id), events=[], state="awaiting_inputs",
+                    request={"kind": "director_brief", "brief": body.title, "draft": body.draft,
+                             "assignee": body.assignee, "version": "R1"})
+    record(row, "head", "director", body.title, intake=intake, actor=user.id)
+    record(row, "director", body.assignee, body.draft)
+    db.add(row)
+    db.commit()
     return output(row)
 
 

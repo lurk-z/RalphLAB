@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { restoreThreads, type Transcript } from '@/lib/lab-demo/chat-history'
-import { readChatResponse } from '@/lib/lab-demo/chat-response'
-import type { FormulaProposal } from '@/lib/lab-demo/formula-proposal'
 import { assessmentText, assessmentViewRequested, requestedView, type ChatAssessment } from '@/lib/lab-demo/chat-assessment'
+import { applyLabPlan } from '@/lib/lab-room/chat-tools'
+import { readFormulaProposal, type FormulaProposal } from '@/lib/lab-demo/formula-proposal'
+import { http } from '@/lib/api'
 import type { Role } from '../agents/workflow'
-import { demoReply, type Progress } from '../agents/handoffDemo'
 
 export type Thread = Transcript
 type Message = Thread['messages'][number]
@@ -17,7 +17,6 @@ export type ChatFormula = {
   assessment?: ChatAssessment
 }
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const MAX_THREADS = 20
 const MAX_MESSAGES = 60
 export const MAX_QUESTION_LENGTH = 4000
@@ -26,9 +25,8 @@ export function makeChatId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export function useLabAgentChat(projectId: number | null, userId: string, demo = false, progress?: Progress) {
-  const projectScope = (userId === 'demo-user' ? '' : encodeURIComponent(userId) + ':') + (projectId ?? 'standalone')
-  const key = demo ? `ralphlab:agent-chat:demo:v1:${projectScope}` : `ralphlab:agent-chat:v1:${projectScope}`
+export function useLabAgentChat(projectId: number | null, viewer: string) {
+  const key = `ralphlab:openai-chat:v1:${encodeURIComponent(viewer)}:${projectId ?? 'none'}`
   const [store, setStore] = useState<{ key: string; threads: Thread[] } | null>(null)
   const [pending, setPending] = useState<Record<string, boolean>>({})
   const [activity, setActivity] = useState<Record<string, string[]>>({})
@@ -100,60 +98,40 @@ export function useLabAgentChat(projectId: number | null, userId: string, demo =
     requests.current.set(id, controller)
     setPending((current) => ({ ...current, [id]: true }))
     setErrors((current) => ({ ...current, [id]: '' }))
-    if (!retry) addMessage(id, agent, { id: makeChatId(), role: 'user', text, time: Date.now() })
+    const messageId = (retry && thread.messages.at(-1)?.id) || makeChatId()
+    if (!retry) addMessage(id, agent, { id: messageId, role: 'user', text, time: Date.now() })
 
     const ingredients = formula?.items.slice(0, 100).map((item) => `${item.name || item.smiles}: ${item.concentration}%`).join('\n')
     const results = formula?.assessment && assessmentText(formula.assessment)
     const showResults = assessmentViewRequested(text)
-    const previous = (retry ? thread.messages.slice(0, -1) : thread.messages).slice(-8)
-      .map((item) => {
-        const recipes = item.proposals?.map(({ name, items }) =>
-          `${name}: ${items.map((ingredient) => `${ingredient.name || ingredient.smiles} ${ingredient.concentration}%`).join(', ')}`) ?? []
-        return `${item.role === 'user' ? 'ผู้ใช้' : 'ผู้ช่วย'}: ${[item.text, ...recipes].join('\n').slice(0, 1200)}`
-      }).join('\n')
-    const context = [
-      `ตอบในบทบาท${name}ของ Ralph Lab หน้าที่: ${scope}`,
-      'ให้คำแนะนำจากหลักฐานในบริบทนี้ แยกข้อสังเกตจากข้อมูลที่ยังขาด ห้ามอ้างว่าได้เปลี่ยนสูตร เดินส่งงาน หรือประเมินจริงจากการสนทนาเพียงอย่างเดียว',
-      projectId ? `โครงการ ${projectId}` : 'ไม่มีโครงการที่เลือก',
-      formula ? `สูตร ${formula.name} (${formula.id})\n${ingredients || 'ไม่มีรายการส่วนผสม'}` : 'ไม่มีสูตรที่เลือก',
-      results ? `ผลคัดกรองด้วยแบบจำลองของสูตรปัจจุบัน:\n${results}` : 'ไม่มีผลประเมินของสูตรในบริบทนี้',
-      previous ? `ประวัติการสนทนา (ข้อมูลอ้างอิง):\n${previous}` : '',
-    ].filter(Boolean).join('\n\n')
-
-    let errorMessage = 'ส่งข้อความไม่สำเร็จ โปรดตรวจการเชื่อมต่อกับ Backend แล้วลองอีกครั้ง'
+    const history = (retry ? thread.messages.slice(0,-1) : thread.messages).slice(-10)
+      .map(m => ({role:m.role,text:m.text.slice(0,2000)}))
+    const context = [name,scope,formula?.name,ingredients,results].filter(Boolean).join("\n").slice(0,4000)
     try {
-      let reply: string | undefined
-      let proposals: FormulaProposal[] | undefined
-      if (demo) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 450))
-        reply = progress ? demoReply(agent, progress) : 'กำลังเตรียมโครงการทดสอบ D01'
-      } else {
-        const response = await fetch(`${API}/api/chat/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson, application/json' },
-          body: JSON.stringify({ question: text, context, surface: 'lab', lab_role: agent }),
-          signal: controller.signal,
-        })
-        if (!response.ok) {
-          if (response.status === 503) errorMessage = 'แชต AI ยังไม่พร้อม ตรวจว่า Backend ตั้งค่า GROQ_API_KEY หรือ OPENAI_API_KEY แล้ว'
-          if (response.status === 429) errorMessage = 'ถึงขีดจำกัดคำขอ API ชั่วคราว รอสักครู่แล้วลองอีกครั้ง'
-          if (response.status === 502) errorMessage = 'แชต AI เชื่อมต่อไม่สำเร็จ ตรวจคีย์และโมเดลของ Groq หรือ OpenAI ที่ตั้งไว้ใน Backend'
-          throw new Error(`HTTP ${response.status}`)
-        }
-        const result = await readChatResponse(response, recordStep)
-        proposals = result.proposals
-        recordStep('รับคำตอบจาก API')
-        // The Lab chat is advisory. The legacy API can include commands for the old editor.
-        reply = result.answer.replace(/<action\b[^>]*>[\s\S]*?(?:<\/action>|$)|```(?:actions?|formula|json)\b[\s\S]*?(?:```|$)/gi, '').trim().slice(0, 20_000)
-      }
-      if (controller.signal.aborted) return
-      if (!reply && !proposals?.length) throw new Error('Empty answer')
-      addMessage(id, agent, { id: makeChatId(), role: 'assistant', text: reply || '', time: Date.now(), startedAt, publicSteps: steps, proposals,
-        assessment: !demo && showResults && formula?.assessment ? { ...formula.assessment, view: requestedView(text) } : undefined })
-    } catch {
-      if (!controller.signal.aborted) {
-        setErrors((current) => ({ ...current, [id]: errorMessage }))
-      }
+      if (!projectId) throw Error("เลือกโปรเจกต์ก่อนเริ่มแชต")
+      const headers = {"content-type":"application/json","x-ralphlab-project":String(projectId)}
+      const signal = controller.signal
+      recordStep("ส่งโจทย์และประวัติสนทนาให้ OpenAI")
+      const response = await fetch("/api/lab-chat",{method:"POST",headers,signal,
+        body:JSON.stringify({id:messageId,role:agent,question:text,history,context})})
+      const plan = await response.json()
+      if (!response.ok) throw Error(plan.detail || "ติดต่อ OpenAI ไม่สำเร็จ")
+      const reply = await applyLabPlan(plan,agent,projectId,messageId,async (path,data) => {
+        recordStep("บันทึกใบงานในโปรเจกต์")
+        const init = {method:"POST",headers,signal,body:JSON.stringify(data)}
+        if (path !== "/api/timed") return http<{id:string}>(path,init)
+        const saved = await fetch(path,init)
+        const row = await saved.json()
+        if (!saved.ok) throw Error(row.detail || "บันทึกกำหนดติดตามไม่ได้")
+        return row
+      })
+      const proposals = agent==="formulator" && Array.isArray(plan.proposals)
+        ? plan.proposals.map(readFormulaProposal).filter((p:FormulaProposal|null)=>p!==null) : undefined
+      if (!signal.aborted) addMessage(id,agent,{id:makeChatId(),role:"assistant",...reply,proposals,
+        time:Date.now(),startedAt,publicSteps:steps,
+        assessment:showResults && formula?.assessment ? {...formula.assessment,view:requestedView(text)} : undefined})
+    } catch (error) {
+      if (!controller.signal.aborted) setErrors(current=>({...current,[id]:error instanceof Error ? error.message : "ส่งข้อความไม่สำเร็จ"}))
     } finally {
       if (requests.current.get(id) === controller) {
         requests.current.delete(id)
@@ -163,5 +141,5 @@ export function useLabAgentChat(projectId: number | null, userId: string, demo =
     }
   }
 
-  return { threads, pending, activity, errors, send, deleteThread, demo, ready: store?.key === key }
+  return { threads, pending, activity, errors, send, deleteThread, ready: store?.key === key }
 }

@@ -94,6 +94,16 @@ function dropIdentity(request) {
 async function portalGate(request,env) {
   const url=new URL(request.url),p=url.pathname.replace(/\/+$/,"")||"/",get=["GET","HEAD"].includes(request.method);
   if(get && (p==="/api/health" || /^\/(assets|models|images|icons|fonts)\//.test(p))) return {request};
+  if(p==="/api/relay/chat-plan")return {request:new Request(request,{headers:dropIdentity(request)})};
+  if(/^\/api\/relay\/native-timed(?:\/[\da-f-]+)?$/.test(p)){
+    const scope=request.headers.get("x-native-scope");
+    requireValue(env.RALPHLAB_CHAT_RELAY_TOKEN && /^[\da-f]{64}$/.test(scope||"") &&
+      request.headers.get("x-native-timed")===await timedDigest("native-timed:"+env.RALPHLAB_CHAT_RELAY_TOKEN),401,"ไม่มีสิทธิ์เปิดงานติดตาม");
+    const headers=dropIdentity(request);
+    headers.set("oai-authenticated-user-id","native-timed/"+scope);
+    url.pathname=p.replace("/api/relay/native-timed","/api/timed");
+    return {request:new Request(url,new Request(request,{headers}))};
+  }
   if(p==="/api/auth/google" && get)return beginGoogle(env,url);
   if(p==="/api/auth/callback/google" && get)return finishGoogle(request,env,url);
   if((p.startsWith("/api/lab/qsar") && request.headers.has("x-qsar-runner")) ||
@@ -142,6 +152,8 @@ async function portalGate(request,env) {
   }
   requireValue(d,401,"กรุณาเข้าสู่ระบบด้วย Google");
   requireValue(project,409,"สร้างหรือเลือกโปรเจกต์ก่อนเข้าห้องแล็ป");
+  const requestedHeader=request.headers.get("x-ralphlab-project");
+  if(requestedHeader!==null)requireValue(Number(requestedHeader)===project.id,409,"โปรเจกต์ที่เปิดอยู่เปลี่ยนแล้ว กรุณาโหลดหน้าใหม่");
   if(get && ["/api/projects","/api/lab/projects"].includes(p))return json([{...project,owner:true}]);
   if(p==="/api/projects" && !get)throw new ApiError(409,"สร้างโปรเจกต์ผ่านหน้าโปรเจกต์");
   const requested=p.match(/^\/api\/(?:lab\/projects|research\/project)\/(\d+)(?:\/|$)/);

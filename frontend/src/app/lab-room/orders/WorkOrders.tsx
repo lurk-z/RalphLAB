@@ -147,8 +147,9 @@ function Inbox({ project, initialOrder }: { project: Project; initialOrder:strin
       )}
       {active && isStudy(active) && <StudyDetail key={active.id} study={active} owner={project.owner} onSave={saved} />}
       {active && !isStudy(active) && !hasVersions(active) && <div className="my-4">
-        <strong>{states[active.state]}</strong><p>{active.events.at(-1)?.message}</p>
-        {project.owner && <NewOrder key={active.id} project={project.id} intake={active} onSave={saved}/>}
+        <strong>{states[active.state]}</strong><p style={{whiteSpace:"pre-wrap"}}>{active.events.at(-1)?.message}</p>
+        {active.request.kind==="director_brief" && <p>ผู้รับผิดชอบ · {active.request.assignee}</p>}
+        {project.owner && active.request.kind!=="director_brief" && <NewOrder key={active.id} project={project.id} intake={active} onSave={saved}/>}
       </div>}
       {active && hasVersions(active) && (
         <OrderDetail
