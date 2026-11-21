@@ -1,0 +1,87 @@
+.wo {
+  max-width: 56rem;
+  margin: auto;
+  padding: 2rem 1.25rem 5rem;
+  color: #183a37;
+}
+.wo h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 1rem 0;
+}
+.wo h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+.wo h3,
+.wo legend,
+.wo summary {
+  font-weight: 650;
+}
+.wo p,
+.wo h3 {
+  margin: 0.65rem 0;
+}
+.wo a:not([class]) {
+  color: #09665c;
+  text-decoration: underline;
+}
+.wo-card {
+  border: 1px solid #cadbd6;
+  border-radius: 12px;
+  background: white;
+  padding: 1.2rem;
+  margin: 1rem 0;
+}
+.wo label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.92rem;
+  margin: 0.65rem 0;
+}
+.wo select,
+.wo textarea {
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #a9c2bd;
+  border-radius: 6px;
+  color: #183a37;
+  background: white;
+}
+.wo [role="alert"] {
+  color: #963627;
+}
+.wo-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 0.75rem 0;
+}
+.wo-pair > * {
+  min-width: 0;
+
+}
+.wo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.wo-events {
+  list-style: decimal;
+  padding-left: 1.6rem;
+}
+.wo-events li {
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid #e3ece8;
+  overflow-wrap: anywhere;
+}
+.wo-events time {
+  font-size: 0.8em;
+  color: #45655f;
+}
+@media (max-width: 600px) {
+  .wo-pair {
+    grid-template-columns: 1fr;
+  }
+}

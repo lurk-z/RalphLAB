@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 import { AlertCircle, FolderOpen, Plus, RefreshCw, SearchX, Trash2 } from "lucide-react";
 
@@ -256,6 +257,7 @@ export default function ProjectsPage() {
                   containerClassName="flex-1 sm:w-72 sm:flex-none"
                 />
               )}
+              <Button asChild variant="outline" className="shrink-0"><Link href="/lab-room/orders">ใบงาน Agent</Link></Button>
               <Button onClick={() => openDialog(null)} className="shrink-0">
                 <Plus /> สร้างโปรเจกต์
               </Button>

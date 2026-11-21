@@ -239,7 +239,7 @@ function isRetriableRead(init?: RequestInit): boolean {
   return method === "GET" || method === "HEAD";
 }
 
-async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
+export async function http<T>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> {
   try {
     return await httpOnce<T>(path, init, timeoutMs);
   } catch (cause) {
@@ -284,6 +284,11 @@ async function httpOnce<T>(path: string, init?: RequestInit, timeoutMs = 12000):
         try {
           const parsed = JSON.parse(body) as { detail?: unknown };
           if (typeof parsed.detail === "string") detail = parsed.detail;
+          if (Array.isArray(parsed.detail)) {
+            const messages = parsed.detail.flatMap(issue =>
+              typeof issue?.msg === "string" ? [issue.msg.replace(/^Value error, /, "")] : []);
+            if (messages.length) detail = messages.join(" · ");
+          }
         } catch {
           // Keep the plain response body when the server does not return JSON.
         }
