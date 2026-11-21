@@ -257,8 +257,26 @@ async function timedAPI(request, env, url, ctx) {
     "กรอกผลจากหน้าใบงาน",
     403,
   );
+  const command = b.command_id && !relay
+    ? { id: uuid(b.command_id), signature: await timedDigest(JSON.stringify(b)) }
+    : null;
+  function replay(original) {
+    const match = command && original.chat_commands?.find(item => item.id === command.id);
+    if (!match) return false;
+    requireTimed(match.signature === command.signature, "รหัสคำสั่งเคยใช้กับข้อมูลอื่น", 409);
+    return true;
+  }
+  const receipt = current => json({
+    row: current,
+    report: timedReport(current),
+    signal: timedSignal(current, now),
+  });
+  if (replay(row)) return receipt(row);
   const prev = row.version;
-  advanceTimed(row, b, now, relay ? "LINE" : "web");
+  const event = command && b.observed === "now" ? { ...b, observed: now } : b;
+  if (command && b.action === "observe") requireTimed(b.unit === row.unit, "หน่วยไม่ตรงกับใบงาน");
+  advanceTimed(row, event, now, relay ? "LINE" : command ? "chat" : "web");
+  if (command) row.chat_commands = [...(row.chat_commands || []), command];
   if (["continue", "followup", "stop"].includes(b.action)) {
     const context = row.metric + " " + row.goal;
     const topic = researchTopic(row.problem || "", context);
@@ -282,11 +300,17 @@ async function timedAPI(request, env, url, ctx) {
       saved.pair_hash ?? "",
     )
     .run();
-  requireTimed(
-    changed.meta.changes === 1,
-    "ข้อมูลเปลี่ยนแล้ว โปรดโหลดใหม่",
-    409,
-  );
+  if (changed.meta.changes !== 1) {
+    if (command) {
+      const current = await db.prepare("SELECT payload FROM timed_studies WHERE id=? AND owner=?")
+        .bind(id, user).first();
+      if (current) {
+        const latest = JSON.parse(current.payload);
+        if (replay(latest)) return receipt(latest);
+      }
+    }
+    throw new ApiError(409, "ข้อมูลเปลี่ยนแล้ว โปรดโหลดใหม่");
+  }
   if (row.state === "paused" && ctx && !relay) {
     ctx.waitUntil(
       researchRun(

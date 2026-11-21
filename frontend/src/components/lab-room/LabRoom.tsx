@@ -103,6 +103,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
   currentAgent.current = agent
   const setView = (view: RoomView) => go(withView(room, view, agent))
   const [cameraAgent, setCameraAgent] = useState<Role | null>(initial.view === 'room' ? initial.agent : null)
+  const [activityView,setActivityView]=useState(false)
   const [chatWidth, setChatWidth] = useState(400)
   const [demoScreen, setDemoScreen] = useState<DemoScreen>(restored?.agent === initial.agent && restored ? restored.screen : { kind: 'private' })
   const agentDemo = useAgentDemo(projectId)
@@ -130,6 +131,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
     const message = highlightId ? state.messages.find((m) => m.messageId === highlightId) : undefined
     const jobId = message && threadId === groupThreadId(state.projectId) ? messageJobId(state, message) : undefined
     setDemoScreen(jobId ? { kind: 'group', jobId, highlightId } : { kind: 'private', threadId, highlightId })
+    setActivityView(false)
     setSampleOpen(0)
     setAgent(role)
     setCameraAgent(role)
@@ -279,7 +281,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
             </div>
           </div>
           {agent && (
-            <div ref={panelRef} tabIndex={-1} aria-label="แชตในห้องแล็บ" role="region" className="lab-chat-panel" style={{ '--chat-width': `${chatWidth}px` } as CSSProperties}>
+            <div ref={panelRef} tabIndex={-1} aria-label="แชตในห้องแล็บ" role="region" className="lab-chat-panel" data-desk-chat={deskStudy ? "true":undefined} style={{ '--chat-width': `${chatWidth}px` } as CSSProperties}>
               <div className="lab-chat-divider" role="separator" tabIndex={0} aria-label="ปรับความกว้างแชต" aria-orientation="vertical"
                 aria-valuemin={CHAT_MIN_WIDTH} aria-valuemax={CHAT_MAX_WIDTH} aria-valuenow={chatWidth}
                 onPointerDown={(event) => {
@@ -302,7 +304,11 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
                   stopFollowing()
                   commitWidth(Math.max(CHAT_MIN_WIDTH, Math.min(maxChatWidth(), width + direction * 24)))
                 }} />
-              {deskStudy && agent !== 'director' ? <DeskAgentActivity study={deskStudy} role={agent} onClose={() => selectAgent(null)} onOpenGraph={(role) => openGraph(role)} />
+              {deskStudy && <div className="flex gap-2 bg-white px-3 py-1 text-xs">
+                <button type="button" aria-pressed={!activityView} className="rounded px-2 py-1 aria-pressed:bg-teal-100" onClick={()=>setActivityView(false)}>แชต</button>
+                <button type="button" aria-pressed={activityView} className="rounded px-2 py-1 aria-pressed:bg-teal-100" onClick={()=>setActivityView(true)}>กิจกรรมใบงาน</button>
+              </div>}
+              {deskStudy && activityView ? <DeskAgentActivity study={deskStudy} role={agent} onClose={() => selectAgent(null)} onOpenGraph={(role) => openGraph(role)} />
                 : <LabFormulaBox.Provider value={studio.box}><LabAgentChat key={JSON.stringify([chatScope, demoScreen.kind, demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId : null])}
                   chatScope={chatScope} drafts={drafts} setDrafts={setDrafts} lastThreads={lastThreads.current}
                   agent={agent} formula={context.kind === 'demo' ? undefined : studio.formula} chat={chat} onSelectAgent={selectAgent} onClose={() => {

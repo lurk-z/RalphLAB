@@ -131,3 +131,6 @@
     display: none;
   }
 }
+
+.lab-chat-panel[data-desk-chat=true]{display:flex;flex-direction:column}
+.lab-chat-panel[data-desk-chat=true]>section,.lab-chat-panel[data-desk-chat=true]>aside{flex:1;min-height:0;height:auto}

@@ -16,7 +16,7 @@ from app.models.project import Project
 from app.models.work_order import WorkOrder, WorkOrderReader
 from app.schemas.work_order import Brief, Input, OrderAction, OrderRequest
 from app.services.work_orders import dispatch, final_report, record
-from app.schemas.study import StageResult, StudyBrief
+from app.schemas.study import ChatReference, StageResult, StudyBrief
 from app.services.studies import assess, build_plan, stages
 from app.services.protein import INSULIN, MODELS, PROTEIN, ProteinPose, ProteinRun, alignment_frames, score
 from app.services import insulin_case
@@ -111,6 +111,8 @@ def get_order(project_id: int, order_id: UUID, user: CurrentUser = Depends(get_c
 
 class DirectorBrief(BaseModel):
     id: UUID
+    chat_turn_id: UUID | None = None
+    chat_sources: list[ChatReference] = Field(default_factory=list, max_length=14)
     title: str = Field(min_length=1, max_length=240)
     draft: str = Field(min_length=1, max_length=7000)
     assignee: Literal["researcher", "formulator", "analyst", "evaluator"]
@@ -120,7 +122,7 @@ class DirectorBrief(BaseModel):
 def director_brief(project_id: int, body: DirectorBrief, user: CurrentUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     access(db, user, project_id, write=True)
-    intake = body.model_dump(mode="json")
+    intake = body.model_dump(mode="json", exclude={"chat_sources", "chat_turn_id"})
     row = db.get(WorkOrder, (project_id, str(body.id)))
     if row:
         if row.events[0].get("intake") != intake:
@@ -128,7 +130,8 @@ def director_brief(project_id: int, body: DirectorBrief, user: CurrentUser = Dep
         return output(row)
     row = WorkOrder(project_id=project_id, id=str(body.id), events=[], state="awaiting_inputs",
                     request={"kind": "director_brief", "brief": body.title, "draft": body.draft,
-                             "assignee": body.assignee, "version": "R1"})
+                             "assignee": body.assignee, "version": "R1",
+                             **({"chat_sources": [s.model_dump(mode="json") for s in body.chat_sources]} if body.chat_sources else {})})
     record(row, "head", "director", body.title, intake=intake, actor=user.id)
     record(row, "director", body.assignee, body.draft)
     db.add(row)
@@ -185,7 +188,7 @@ def insulin_comparison():
 def start_study(project_id: int, body: StudyBrief, user: CurrentUser = Depends(get_current_user),
                 db: Session = Depends(get_db)):
     access(db, user, project_id, write=True)
-    intake = body.model_dump(mode="json")
+    intake = body.model_dump(mode="json", exclude={"chat_sources", "chat_turn_id"})
     if not body.case_template:
         intake.pop("case_template", None)  # Existing intake snapshots predate named cases.
     row = db.get(WorkOrder, (project_id, str(body.id)))
@@ -197,6 +200,7 @@ def start_study(project_id: int, body: StudyBrief, user: CurrentUser = Depends(g
     row = WorkOrder(project_id=project_id, id=str(body.id), state="in_progress", events=[],
                     request={"kind": "study", "version": "R1", "brief": body.brief,
                              "discipline": body.discipline, "stages": plan,
+                             **({"chat_sources": [s.model_dump(mode="json") for s in body.chat_sources]} if body.chat_sources else {}),
                              **({"case_template": body.case_template} if body.case_template else {})})
     record(row, "head", "director", body.brief, actor=user.id, intake=intake)
     record(row, "director", "head", "จัดแผนและเลือกเอกสารอ้างอิงตามประเภทงาน", stage_ids=[s["id"] for s in plan])

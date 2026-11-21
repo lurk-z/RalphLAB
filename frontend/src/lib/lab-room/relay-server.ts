@@ -1,6 +1,8 @@
 import {createHash} from "node:crypto";
 import {NextRequest} from "next/server";
 import {currentSession,projectAccess,projectCookie} from "@/lib/active-project";
+import {extractOrderEvidence} from "./order-evidence";
+import type {Case} from "@/app/lab-room/orders/types";
 
 const cloud = "https://ralphlab-workbench.surawit2003it.chatgpt.site";
 const hash = (text:string) => createHash("sha256").update(text).digest("hex");
@@ -36,20 +38,23 @@ export async function relayLabRequest(request:NextRequest, target:"chat"|"timed"
     const orders=await fetch(api+"/api/lab/projects/"+project+"/orders",{headers:{Authorization:"Bearer "+session?.backendToken},
       cache:"no-store",signal:AbortSignal.timeout(8000)}).catch(()=>null);
     if(!orders?.ok)return fail("อ่านใบงานของโปรเจกต์ไม่ได้",503);
-    const rows=await orders.json();
-    body={...body,scope,records:rows.slice(0,8).map((r:{state:string;request:{brief:string;assignee?:string;draft?:string}})=>({
-      title:r.request.brief,state:r.state,assignee:r.request.assignee,draft:r.request.draft?.slice(0,800)}))};
+    const rows:Case[]=await orders.json();
+    body={...body,scope,project,orderEvidence:extractOrderEvidence(rows),records:rows.slice(0,24).map(r=>({
+      id:r.id,title:r.request.brief.slice(0,240),state:r.state,sequence:r.events.length,
+      kind:"kind" in r.request?r.request.kind:undefined,discipline:"discipline" in r.request?r.request.discipline:undefined,
+      assignee:"assignee" in r.request?r.request.assignee:undefined,draft:"draft" in r.request?r.request.draft?.slice(0,800):undefined,
+      stages:"stages" in r?r.stages.map(({id,title,status,minimum_values,due})=>({id,title,status,minimum_values,due})):undefined}))};
     headers["x-ralphlab-chat-relay"]=token;
   }else{
     if(parts.length>2 || (parts.length && !/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(parts[0])) ||
-      (parts[1] && parts[1]!=="event"))return fail("ไม่พบงานติดตาม",404);
+      (parts[1] && parts[1]!=="events"))return fail("ไม่พบงานติดตาม",404);
     path="/api/relay/native-timed"+(parts.length?"/"+parts.join("/"):"");
     headers["x-native-timed"]=hash("native-timed:"+token);
     headers["x-native-scope"]=scope;
   }
   try{
     const result=await fetch(cloud+path,{method:request.method,headers,body:body?JSON.stringify(body):undefined,
-      cache:"no-store",redirect:"error",signal:AbortSignal.timeout(55000)});
+      cache:"no-store",redirect:"error",signal:AbortSignal.timeout(85000)});
     if(!result.headers.get("content-type")?.includes("application/json"))return fail("ติดต่อ RalphLAB Cloud ไม่สำเร็จ",502);
     return new Response(result.body,{status:result.status,headers:{"content-type":"application/json","cache-control":"private, no-store"}});
   } catch{return fail("ติดต่อ RalphLAB Cloud ไม่สำเร็จ",502);}

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import Image from 'next/image'
 import { ArrowLeft, ArrowUp, Check, ChevronDown, CircleCheck, FlaskConical, History, Mic, Network, Search, SquarePen, Trash2 } from 'lucide-react'
 import AssessmentReply from './AssessmentReply'
+import LabChatSources from './LabChatSources'
+import LabChatPrompts from './LabChatPrompts'
 import { labHref } from '@/lib/lab-room/chat-tools'
 import { assessmentText } from '@/lib/lab-demo/chat-assessment'
 import { ASSISTANT_TYPING_INTERVAL_MS, assistantTypingFrames } from '@/lib/assistant-typing'
@@ -75,7 +77,9 @@ function ChatMessages({ messages }: { messages: Thread['messages'] }) {
         : message.text && <ReplyText text={message.text} animate={!existingReplies.has(message.id)} />}
       {message.assessment && <AssessmentReply data={message.assessment} />}
       {message.proposals?.map((proposal, index) => <FormulaProposalCard key={index} id={`${message.proposalMessageId ?? message.id}:${index}`} proposal={proposal} />)}
-      {labHref(message.labLink) && <a className="my-2 inline-block font-semibold text-teal-800 underline" href={labHref(message.labLink)}>เปิด{({orders:"ใบงาน Agent",protein:"โต๊ะโปรตีน 3D",timed:"งานติดตามตามเวลา",self_test:"หน้าทดสอบสารด้วยตัวเอง"})[message.labLink!.target]}</a>}
+      {[...(message.labLinks||[]),...(message.labLink?[message.labLink]:[])].map((link,i)=>labHref(link) &&
+        <a key={i} className="my-2 mr-3 inline-block font-semibold text-teal-800 underline" href={labHref(link)}>เปิด{({orders:"ใบงาน Agent",protein:"โต๊ะโปรตีน 3D",timed:"งานติดตามตามเวลา",self_test:"ผลการทดสอบสาร"})[link.target]}</a>)}
+      <LabChatSources sources={message.sources} notices={message.sourceNotices}/>
       {!message.receipt && <MessageMeta text={message.assessment ? message.text + '\n' + assessmentText(message.assessment) : message.text} time={message.time} />}
     </article>
   ))
@@ -384,10 +388,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
               {!job && <Portrait agent={agent} />}
               <p className="text-sm font-semibold text-slate-800">{job?.title ?? name}</p>
               <p className="text-sm text-slate-600">{job ? 'ส่งข้อความถึงทีมในช่องนี้' : 'พิมพ์คำถามด้านล่างเพื่อเริ่มสนทนา'}</p>
-              {!job && !input && <button type="button" disabled={!chatReady || listening} onClick={() => {
-                setInput(starter)
-                inputRef.current?.focus()
-              }} className="min-h-11 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900 hover:bg-teal-100">{starter}</button>}
+              {!job && !input && <LabChatPrompts role={agent} choose={text=>{setInput(text);inputRef.current?.focus()}}/>}
             </div>
           )}
           {agentDemo && priorMessages.length > 0 && <ChatMessages key={`archive-${thread?.id}`} messages={priorMessages} />}

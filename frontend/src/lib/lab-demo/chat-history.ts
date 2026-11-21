@@ -4,7 +4,8 @@ import { scopeKey, type AgentRole, type DemoScope, type LabDemoState } from "./e
 import { readFormulaProposal, type FormulaProposal } from "./formula-proposal.ts";
 
 import type { LabLink } from "../lab-room/chat-tools.ts";
-type Message = { labLink?: LabLink; id: string; role: "user" | "assistant"; text: string; time: number; publicSteps?: string[]; startedAt?: number; assessment?: ChatAssessment; receipt?: boolean; proposals?: FormulaProposal[]; proposalMessageId?: string };
+import { readLabSources, readSourceNotices, type LabSource } from "../lab-room/lab-sources.ts";
+type Message = { labLink?: LabLink; labLinks?:LabLink[]; sources?:LabSource[]; sourceNotices?:string[]; id: string; role: "user" | "assistant"; text: string; time: number; publicSteps?: string[]; startedAt?: number; assessment?: ChatAssessment; receipt?: boolean; proposals?: FormulaProposal[]; proposalMessageId?: string };
 export function publicSteps(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).slice(0, 30).map(v => v.slice(0, 500)) : [];
 }
@@ -27,7 +28,7 @@ export function restoreThreads(value: unknown): Transcript[] {
           ? m.proposals.map(readFormulaProposal).filter((proposal) => proposal !== null)
           : undefined;
         const proposalMessageId = proposals?.length && typeof m.proposalMessageId === "string" && m.proposalMessageId.trim() ? m.proposalMessageId : undefined;
-        return { ...m, publicSteps: publicSteps(m.publicSteps), startedAt: timestamp(m.startedAt) ? m.startedAt : undefined,
+        return { ...m, sources:readLabSources(m.sources), sourceNotices:readSourceNotices(m.sourceNotices), labLinks:Array.isArray(m.labLinks)?m.labLinks.filter(l=>l && typeof l==="object").slice(0,4):undefined, publicSteps: publicSteps(m.publicSteps), startedAt: timestamp(m.startedAt) ? m.startedAt : undefined,
           receipt: m.receipt === true || legacyReceipt, proposals, proposalMessageId, assessment: isChatAssessment(m.assessment) ? m.assessment : undefined };
       });
     const last = messages.at(-1);

@@ -284,10 +284,10 @@ async function researchAPI(request, env, url) {
   };
   if (parts.length === 5) {
     await uploadSource(request, env, db, user, scope, context);
-    return json({ roles: RESEARCH_ROLES, runs: await read() });
+    return json({ roles: researchRolesWithReferences(), runs: await read() });
   }
   if (request.method === "GET")
-    return json({ roles: RESEARCH_ROLES, runs: await read() });
+    return json({ roles: researchRolesWithReferences(), runs: await read() });
   requireTimed(request.method === "POST", "ไม่รองรับวิธีนี้", 405);
   const b = await bodyOf(request, url);
   if (b.action === "search") {
@@ -330,5 +330,8 @@ async function researchAPI(request, env, url) {
       409,
     );
   }
-  return json({ roles: RESEARCH_ROLES, runs: await read() });
+  return json({ roles: researchRolesWithReferences(), runs: await read() });
+}
+function researchRolesWithReferences() {
+  return Object.fromEntries(Object.entries(RESEARCH_ROLES).map(([key,role])=>[key,{...role,references:roleReferences(key)}]));
 }

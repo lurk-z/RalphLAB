@@ -2,13 +2,14 @@ import React, { useEffect, useState } from "react";
 import "./research.css";
 import SourceUpload from "./SourceUpload";
 
-type Base = { name: string; title: string; url: string; use: string };
+type Base = { name: string; title: string; url: string; use: string; references?: {title:string;url:string;detail:string}[] };
 type Review = { decision: string; note: string; hypothesis: string };
 type Source = {
   id: string;
   title: string;
   url: string;
   kind: string;
+  provider?: string;
   detail: string;
   review?: Review;
   file?: { name: string; bytes: number; href: string };
@@ -32,6 +33,7 @@ type Run = {
   paper: string;
   software: string;
   baseline: Base;
+  providers?: string[];
   hypothesis: string;
   check: string;
   prior: Used[];
@@ -133,16 +135,11 @@ export default function ResearchShelf({
             ))}
           </select>
         </label>
-        {base && (
-          <p>
-            แหล่งตั้งต้น ·{" "}
-            <a href={base.url} target="_blank" rel="noreferrer">
-              {base.title}
-            </a>
-            <br />
-            {base.use}
-          </p>
-        )}
+        {base && <div><strong>แหล่งตั้งต้นของ{base.name}</strong>
+          <ul>{(base.references ?? [{title:base.title,url:base.url,detail:base.use}]).map(s=>
+            <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a> · {s.detail}</li>
+          )}</ul>
+        </div>}
         <label>
           หลักฐานเดิมยังตอบเรื่องใดไม่ได้
           <input
@@ -176,14 +173,13 @@ export default function ResearchShelf({
           {r.kind !== "upload" && (
             <>
               <p>
-                {new Date(r.at).toLocaleString("th-TH")} · Crossref “{r.paper}”
-                · GitHub “{r.software}”
+                {new Date(r.at).toLocaleString("th-TH")} · {r.providers ? r.providers.join(" / ")+" · "+r.paper : "Crossref · "+r.paper+" / GitHub · "+r.software}
               </p>
-              <p>
+              {r.hypothesis && <p>
                 <strong>สมมติฐานตั้งต้นที่ยังต้องตรวจ</strong> · {r.hypothesis}
                 <br />
                 {r.check}
-              </p>
+              </p>}
             </>
           )}
           {r.prior?.map((p) => (
@@ -220,7 +216,7 @@ export default function ResearchShelf({
             <article key={s.id}>
               <small>
                 {s.kind === "paper"
-                  ? "บทความ · Crossref"
+                  ? "บทความ · "+(s.provider||"Crossref")
                   : s.kind === "file"
                     ? "ไฟล์ต้นฉบับ"
                     : "ซอฟต์แวร์ · GitHub"}

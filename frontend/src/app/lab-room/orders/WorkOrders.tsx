@@ -1,4 +1,6 @@
 "use client";
+import LabChatSources from "@/components/three/skincare-lab/chat/LabChatSources";
+import {readLabSources} from "@/lib/lab-room/lab-sources";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -145,6 +147,7 @@ function Inbox({ project, initialOrder }: { project: Project; initialOrder:strin
       ) : (
         <p>โครงการนี้ยังไม่มีใบงาน</p>
       )}
+      {active && "chat_sources" in active.request && <LabChatSources sources={readLabSources(active.request.chat_sources)}/>}
       {active && isStudy(active) && <StudyDetail key={active.id} study={active} owner={project.owner} onSave={saved} />}
       {active && !isStudy(active) && !hasVersions(active) && <div className="my-4">
         <strong>{states[active.state]}</strong><p style={{whiteSpace:"pre-wrap"}}>{active.events.at(-1)?.message}</p>

@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { restoreThreads, type Transcript } from '@/lib/lab-demo/chat-history'
 import { assessmentText, assessmentViewRequested, requestedView, type ChatAssessment } from '@/lib/lab-demo/chat-assessment'
-import { applyLabPlan } from '@/lib/lab-room/chat-tools'
+import { readLabSources,readSourceNotices } from '@/lib/lab-room/lab-sources'
+import { applyLabTurn } from '@/lib/lab-room/chat-tools'
+import { awaitChatQsar } from '@/lib/lab-room/wait-qsar'
 import { readFormulaProposal, type FormulaProposal } from '@/lib/lab-demo/formula-proposal'
 import { http } from '@/lib/api'
 import type { Role } from '../agents/workflow'
@@ -105,7 +107,10 @@ export function useLabAgentChat(projectId: number | null, viewer: string) {
     const results = formula?.assessment && assessmentText(formula.assessment)
     const showResults = assessmentViewRequested(text)
     const history = (retry ? thread.messages.slice(0,-1) : thread.messages).slice(-10)
-      .map(m => ({role:m.role,text:m.text.slice(0,2000)}))
+      .map(m => {
+        const links=[...(m.labLinks||[]),...(m.labLink?[m.labLink]:[])].filter(l=>l.project===projectId && l.id)
+        return {role:m.role,text:[m.text.slice(0,1550),...links.map(l=>l.target+" · "+l.id)].filter(Boolean).join("\n").slice(0,2000)}
+      })
     const context = [name,scope,formula?.name,ingredients,results].filter(Boolean).join("\n").slice(0,4000)
     try {
       if (!projectId) throw Error("เลือกโปรเจกต์ก่อนเริ่มแชต")
@@ -116,18 +121,37 @@ export function useLabAgentChat(projectId: number | null, viewer: string) {
         body:JSON.stringify({id:messageId,role:agent,question:text,history,context})})
       const plan = await response.json()
       if (!response.ok) throw Error(plan.detail || "ติดต่อ OpenAI ไม่สำเร็จ")
-      const reply = await applyLabPlan(plan,agent,projectId,messageId,async (path,data) => {
-        recordStep("บันทึกใบงานในโปรเจกต์")
-        const init = {method:"POST",headers,signal,body:JSON.stringify(data)}
-        if (path !== "/api/timed") return http<{id:string}>(path,init)
-        const saved = await fetch(path,init)
-        const row = await saved.json()
-        if (!saved.ok) throw Error(row.detail || "บันทึกกำหนดติดตามไม่ได้")
-        return row
-      })
+      const sources=readLabSources(plan.sources)
+      const sourceNotices=readSourceNotices(plan.sourceNotices)
+      if(sources.length)recordStep("อ่านแหล่งอ้างอิง "+sources.length+" รายการ")
+      const actingRole=plan.handledBy==="director"?"director":agent
+      if(actingRole!==agent)recordStep("หัวหน้าแล็บรับคำสั่งต่อในแชตนี้")
+      async function api(path:string,data?:object) {
+        const init={method:data?"POST":"GET",headers,signal,cache:"no-store" as const,body:data?JSON.stringify(data):undefined}
+        if(!path.startsWith("/api/timed")){
+          const row=await http<any>(path,init)
+          if(data && path==="/api/lab/projects/"+projectId+"/chat-qsar" &&
+              row?.id===("id" in data ? data.id : undefined) && typeof row?.id==="string" &&
+              ["queued","preparing","running"].includes(row.state)){
+            recordStep("รอผลจากเครื่องคำนวณ QSAR")
+            return awaitChatQsar(row,()=>http(path+"?job="+encodeURIComponent(row.id),
+              {method:"GET",headers,signal,cache:"no-store"}),signal)
+          }
+          return row
+        }
+        const res=await fetch(path,init)
+        const value=await res.json()
+        if(!res.ok)throw Error(value.detail||"อ่านหรือบันทึกงานติดตามไม่ได้")
+        return value
+      }
+      const reply=await applyLabTurn(plan,actingRole,projectId,messageId,(path,data)=>{
+        recordStep("ดำเนินคำสั่งในโปรเจกต์")
+        const newOrder=/\/(?:studies|director-briefs)$/.test(path)
+        return api(path,newOrder&&sources.length?{...data,chat_sources:sources.filter(s=>s.url.startsWith('https://')),chat_turn_id:messageId}:data)
+      },path=>api(path))
       const proposals = agent==="formulator" && Array.isArray(plan.proposals)
         ? plan.proposals.map(readFormulaProposal).filter((p:FormulaProposal|null)=>p!==null) : undefined
-      if (!signal.aborted) addMessage(id,agent,{id:makeChatId(),role:"assistant",...reply,proposals,
+      if (!signal.aborted) addMessage(id,agent,{id:makeChatId(),role:"assistant",...reply,sources,sourceNotices,proposals,
         time:Date.now(),startedAt,publicSteps:steps,
         assessment:showResults && formula?.assessment ? {...formula.assessment,view:requestedView(text)} : undefined})
     } catch (error) {

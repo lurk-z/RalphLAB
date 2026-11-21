@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import assessments, chat, health, herbs, models, ocr, projects, pubchem_online, substances, tts
 from app.core.config import settings
-from app.api import work_orders
+from app.api import chat_qsar, work_orders
 
 
 @asynccontextmanager
@@ -49,6 +49,7 @@ app.add_middleware(
 # Register routers
 app.include_router(health.router, tags=["health"])
 app.include_router(work_orders.router, prefix="/api/lab", tags=["lab-work-orders"])
+app.include_router(chat_qsar.router, prefix="/api/lab", tags=["lab-qsar"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(substances.router, prefix="/api/substances", tags=["substances"])
 app.include_router(herbs.router, prefix="/api/herbs", tags=["herbs"])

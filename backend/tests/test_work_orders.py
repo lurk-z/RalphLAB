@@ -63,6 +63,27 @@ def lab():
 BASE = "/api/lab/projects/1/orders"
 
 
+def test_chat_evidence_survives_brief_and_study_and_requires_bounded_https(lab):
+    client, _ = lab
+    source = dict(id="S1", title="Measurement Process Characterization",
+                  url="https://www.itl.nist.gov/div898/handbook/mpc/mpc.htm",
+                  provider="NIST", kind="reference", detail="Repeatability of measurement",
+                  coverage="Scope summary", cited=True)
+    for route, fields in [
+        ("director-briefs", dict(title="Quality check", draft="Record the measurement [S1]", assignee="analyst")),
+        ("studies", dict(brief="Review the precision of the observations", discipline="validation")),
+    ]:
+        endpoint = "/api/lab/projects/1/" + route
+        body = dict(**fields, id=str(uuid4()), chat_turn_id=str(uuid4()), chat_sources=[source])
+        saved = client.post(endpoint, json=body)
+        assert saved.status_code == 200, saved.text
+        assert client.get(BASE + "/" + body["id"]).json()["request"]["chat_sources"] == [source]
+        for invalid in ("http://example.com/record", "https://name:pass@example.com/a",
+                        "https://example.com/" + "a" * 1300):
+            rejected = client.post(endpoint, json={**body, "id": str(uuid4()), "chat_sources": [{**source, "url": invalid}]})
+            assert rejected.status_code == 422
+
+
 def request():
     items = [{"name": "Water", "percent": "100"}]
     return {

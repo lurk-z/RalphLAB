@@ -2,7 +2,7 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, HttpUrl, model_validator
+from pydantic import Field, HttpUrl, field_validator, model_validator
 from app.schemas.work_order import Input, Label, Note
 
 
@@ -11,8 +11,30 @@ Discipline = Literal[
 ]
 
 
+class ChatReference(Input):
+    id: str = Field(pattern=r"^S[0-9]{1,2}$")
+    title: str = Field(min_length=1, max_length=300)
+    url: HttpUrl
+    provider: str = Field(max_length=80)
+    kind: Literal["project", "reference", "paper", "software"]
+    detail: str = Field(max_length=850)
+    coverage: str = Field(default="", max_length=100)
+    cited: bool
+
+    @field_validator("url")
+    @classmethod
+    def public_address(cls, url):
+        if url.scheme != "https" or url.username or url.password:
+            raise ValueError("ระบุ URL อ้างอิงแบบ HTTPS")
+        if len(str(url)) > 1300:
+            raise ValueError("URL อ้างอิงยาวเกิน 1300 ตัวอักษร")
+        return url
+
+
 class StudyBrief(Input):
     id: UUID
+    chat_turn_id: UUID | None = None
+    chat_sources: list[ChatReference] = Field(default_factory=list, max_length=14)
     brief: Note
     discipline: Discipline
     case_template: Literal["insulin-lispro-v1"] | None = None

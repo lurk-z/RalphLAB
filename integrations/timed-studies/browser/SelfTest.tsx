@@ -46,10 +46,20 @@ export default function SelfTest() {
     if(!response.ok)throw Error(data.detail||"เปิดงานประเมินไม่ได้");
     return data;
   }
+  function displayJob(saved:QsarJob) {
+    setJob(saved);setRegion(saved.formula.region);
+    setItems(saved.formula.ingredients.map(i=>({cid:String(i.cid),percent:String(i.percent)})));
+  }
   useEffect(()=>{
     if(!project)return;
     const ctrl=new AbortController();
     request("",ctrl.signal).then(setRecent).catch(e=>{if(!ctrl.signal.aborted)setError(e.message);});
+    const id=new URLSearchParams(window.location.search).get("job");
+    if(id) {
+      if(!/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(id))setError("เลขงาน QSAR ไม่ถูกต้อง");
+      else request("/"+id,ctrl.signal).then((row:QsarJob)=>{if(!ctrl.signal.aborted)displayJob(row);})
+        .catch(e=>{if(!ctrl.signal.aborted)setError(e.message);});
+    }
     return ()=>ctrl.abort();
   },[project]);
   const waiting=!!job && ["preparing","queued","running"].includes(job.state);
@@ -94,20 +104,20 @@ export default function SelfTest() {
             <button type="button" aria-label={"ลบสารลำดับ "+(i+1)} disabled={items.length===1} onClick={()=>setItems(items.filter((_,j)=>i!==j))}><Trash2 size={15}/></button>
           </div>)}
           <button type="button" disabled={items.length>=20} onClick={()=>setItems([...items,...empty()])}><Plus size={15}/>เพิ่มสาร</button>
-          <label>บริเวณประเมิน<select value={region} onChange={e=>setRegion(e.target.value)}><option value="face">ใบหน้า</option><option value="eye">รอบดวงตา</option></select></label>
+          <label>บริเวณประเมิน<select value={region} onChange={e=>setRegion(e.target.value)}><option value="face">ใบหน้า</option><option value="eye">รอบดวงตา</option><option value="hand">มือ</option><option value="forearm">ท้องแขน</option></select></label>
         </fieldset>
         <button className="st-primary" disabled={!valid||busy||waiting}>{busy?"กำลังส่งสูตร":waiting?"กำลังรอผล QSAR":"ประเมินสูตรด้วย QSAR"}</button>
       </form>
       {error&&<p role="alert">{error}</p>}
-      {recent.some(j=>["face","eye"].includes(j.formula.region))&&<label>เปิดสูตรที่เคยส่ง<select value={selected?.id||""} disabled={busy} onChange={e=>{
+      {recent.length>0&&<label>เปิดสูตรที่เคยส่ง<select value={selected?.id||""} disabled={busy} onChange={e=>{
         const saved=recent.find(j=>j.id===e.target.value);if(!saved)return;
-        setJob(saved);setRegion(saved.formula.region);setItems(saved.formula.ingredients.map(i=>({cid:String(i.cid),percent:String(i.percent)})));
-      }}><option value="">เลือกใบงาน</option>{recent.filter(j=>["face","eye"].includes(j.formula.region)).map(j=><option key={j.id} value={j.id}>{j.formula.ingredients.map(i=>i.cid+" · "+i.percent+"%").join(" + ")} ({j.id.slice(0,8)})</option>)}</select></label>}
+        displayJob(saved);
+      }}><option value="">เลือกใบงาน</option>{(selected&&!recent.some(j=>j.id===selected.id)?[selected,...recent]:recent).map(j=><option key={j.id} value={j.id}>{j.formula.ingredients.map(i=>i.cid+" · "+i.percent+"%").join(" + ")} ({j.id.slice(0,8)})</option>)}</select></label>}
       {selected&&<div aria-live="polite"><h2>ผลการประเมิน</h2>
         {selected.issue&&<p>{selected.issue}</p>}
         {result?<><p>{result.ingredients.map(i=>i.name).join(" + ")}</p><ul>{Object.entries(result.endpoints).map(([k,r])=><li key={k}>{r.label_th} <b>{r.peak_score}/100</b><small>ความเชื่อมั่น {r.confidence} · {r.in_domain?"อยู่ใน":"อยู่นอก"}ขอบเขตโมเดล</small></li>)}</ul></>:<p>{{queued:"รอเครื่องคำนวณ",preparing:"กำลังเตรียมงาน",running:"กำลังคำนวณ",failed:"การประเมินไม่สำเร็จ"}[selected.state]||selected.state}</p>}
       </div>}
-    </section><section className="st-view"><div className="st-canvas"><ModelBoundary><Suspense fallback={<p>กำลังโหลดโมเดลใบหน้า…</p>}>
+    </section><section className="st-view">{["face","eye"].includes(region)?<><div className="st-canvas"><ModelBoundary><Suspense fallback={<p>กำลังโหลดโมเดลใบหน้า…</p>}>
       <Face paintOwnerKey={paintKey} productName={result?.ingredients.map(i=>i.name).join(" + ")||"สูตรที่เลือก"} layers={layers} armed={valid}
         revealResults={!!result} eraseMode={erase} clearPaintRequest={clear} brushSizePct={size} initialPaint={mask} onPaintChange={savePaint}/>
     </Suspense></ModelBoundary></div>
@@ -116,5 +126,5 @@ export default function SelfTest() {
       <label>ขนาดแปรง<input aria-label="ขนาดแปรง" type="range" min="10" max="100" value={size} onChange={e=>setSize(Number(e.target.value))}/></label>
       <button disabled={!mask?.hasPaint} onClick={()=>setClear(n=>n+1)}>ล้างรอยทั้งหมด</button></div>
     <p>ใส่ส่วนผสมแล้วลากแปรงบนใบหน้า เมื่อ QSAR คำนวณเสร็จ บริเวณที่ระบายจะแสดงผลทำนายของสูตร</p>
-    </section></div></main>;
+    </>:<p>ดูผล QSAR ของ{region==="hand"?"มือ":"ท้องแขน"}ในตารางผลการประเมิน</p>}</section></div></main>;
 }

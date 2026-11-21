@@ -88,6 +88,7 @@ async function finishGoogle(request,env,url) {
 }
 function dropIdentity(request) {
   const h=new Headers(request.headers);
+  h.delete("x-lab-qsar-owner");
   for(const k of [...h.keys()]) if(k.startsWith("oai-authenticated-user-")) h.delete(k);
   return h;
 }
@@ -95,7 +96,7 @@ async function portalGate(request,env) {
   const url=new URL(request.url),p=url.pathname.replace(/\/+$/,"")||"/",get=["GET","HEAD"].includes(request.method);
   if(get && (p==="/api/health" || /^\/(assets|models|images|icons|fonts)\//.test(p))) return {request};
   if(p==="/api/relay/chat-plan")return {request:new Request(request,{headers:dropIdentity(request)})};
-  if(/^\/api\/relay\/native-timed(?:\/[\da-f-]+)?$/.test(p)){
+  if(/^\/api\/relay\/native-timed(?:\/[\da-f-]+(?:\/events)?)?$/.test(p)){
     const scope=request.headers.get("x-native-scope");
     requireValue(env.RALPHLAB_CHAT_RELAY_TOKEN && /^[\da-f]{64}$/.test(scope||"") &&
       request.headers.get("x-native-timed")===await timedDigest("native-timed:"+env.RALPHLAB_CHAT_RELAY_TOKEN),401,"ไม่มีสิทธิ์เปิดงานติดตาม");
@@ -161,5 +162,8 @@ async function portalGate(request,env) {
   const scoped=/^\/api\/(timed(?:\/|$)|lab\/(team|qsar)(?:\/|$)|research\/timed\/)/.test(p);
   const owner=scoped && project.id!==d.legacyProject ? "portal/"+await timedDigest(d.owner)+"/"+project.id:d.owner;
   const h=dropIdentity(request);h.set("oai-authenticated-user-id",owner);
+  if(p==="/api/lab-chat" || /^\/api\/lab\/projects\/\d+\/chat-qsar$/.test(p)){
+    h.set("x-lab-qsar-owner",project.id===d.legacyProject?d.owner:"portal/"+await timedDigest(d.owner)+"/"+project.id);
+  }
   return {request:new Request(request,{headers:h})};
 }
