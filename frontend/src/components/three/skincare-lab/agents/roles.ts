@@ -8,3 +8,11 @@ export const roleGuide = {
   researcher: { task: 'ค้นข้อมูลสาร', question: 'จะตรวจสอบชื่อสารและแหล่งข้อมูลได้อย่างไร?' },
   evaluator: { task: 'ตรวจความน่าเชื่อถือของโมเดล', question: 'จะดูได้อย่างไรว่าโมเดลเหมาะกับสารที่เลือก?' },
 } satisfies Record<AgentRole, { task: string; question: string }>
+
+export const WORKBENCH_ROLE_LABEL: Record<AgentRole, string> = {
+  director: 'หัวหน้าแล็บ',
+  researcher: 'นักวิจัย',
+  formulator: 'นักพัฒนาสูตร',
+  analyst: 'นักวิเคราะห์',
+  evaluator: 'ผู้ประเมิน',
+}

@@ -9,7 +9,7 @@ const ROLES: Role[] = ['director', 'researcher', 'formulator', 'analyst', 'evalu
  * loop is paused: the agents the station needs are handed over, the others go back to their stations.
  */
 export type LoopControl = {
-  start(): void
+  start(returnHome?: boolean): void
   /** Stop the loop; `handOver` agents are left idle for the caller, the rest walk home. */
   pause(handOver: Role[]): void
   /** Everyone walks home, then the workflow loop runs again. */
@@ -17,7 +17,7 @@ export type LoopControl = {
   stop(): void
 }
 
-export function createLoopControl(team: Team, sample: Sample, publish?: (progress: Progress) => void): LoopControl {
+export function createLoopControl(team: Team, sample: Sample, publish?: (progress: Progress) => void, workbench = false): LoopControl {
   let signal = { cancelled: false }
   let paused = false
 
@@ -34,11 +34,16 @@ export function createLoopControl(team: Team, sample: Sample, publish?: (progres
   const homeAll = (roles: Role[]) => Promise.all(roles.map((r) => team[r].goHome().catch(() => {})))
 
   return {
-    start() {
+    start(returnHome = false) {
       paused = false
       const s = fresh()
-      sample.reset()
-      void runWorkflow(team, sample, s, publish)
+      const begin = () => {
+        if (s.cancelled) return
+        sample.reset()
+        void runWorkflow(team, sample, s, publish, workbench)
+      }
+      if (returnHome) void homeAll(ROLES).then(begin)
+      else begin()
     },
     pause(handOver) {
       if (paused) return
@@ -55,7 +60,7 @@ export function createLoopControl(team: Team, sample: Sample, publish?: (progres
       void homeAll(ROLES).then(() => {
         if (s.cancelled) return
         sample.reset()
-        void runWorkflow(team, sample, s, publish)
+        void runWorkflow(team, sample, s, publish, workbench)
       })
     },
     stop() {

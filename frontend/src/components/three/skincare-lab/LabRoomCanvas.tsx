@@ -8,23 +8,33 @@ import CameraRig from './CameraRig'
 import { prepareRoom, type LabRoom } from './plainRoom'
 import LabAgents from './agents/LabAgents'
 import type { Role } from './agents/workflow'
-import type { AgentStatuses } from '@/lib/lab-demo/agent-status'
 import type { Progress } from './agents/handoffDemo'
+import type { StationBridge } from './station/bridge'
+import ProteinTable, { type ProteinTableState } from './ProteinTable'
+import InsulinComparisonTable, { type InsulinComparisonTableState } from './InsulinComparisonTable'
+import type { ProteinPhase, ProteinWork } from './agents/proteinWork'
 
 // The three-room Ralph Lab from Blender, shown exactly as exported.
 const MODEL_URL = '/models/Lab_room_3room.glb'
 const ROOM_CAMERA = { fov: 32, near: 0.02, far: 100, position: [3, 2.5, 3.5] as [number, number, number] }
 
 type Props = {
+  workbench?: boolean
+  statuses?: import('@/lib/lab-demo/agent-status').AgentStatuses
   /** Fired once the room is built and on screen. */
   onReady?: () => void
+  /** Testing-station link to the DOM panel (the station is shown only when given). */
+  bridge?: StationBridge
   chatOpen: boolean
   cameraAgent: Role | null
-  statuses: AgentStatuses
   onAgentSelect?: (role: Role, threadId?: string, messageId?: string) => void
   onStopFollowing: () => void
   onHandoff?: (progress: Progress) => void
   onSample?: () => void
+  proteinTable?: ProteinTableState | null
+  insulinComparison?: InsulinComparisonTableState | null
+  proteinWork?: ProteinWork | null
+  onProteinPhase?: (id: string, phase: ProteinPhase) => void
 }
 
 function Lights({ room }: { room: LabRoom }) {
@@ -118,8 +128,9 @@ function Backdrop({ room }: { room: LabRoom }) {
   )
 }
 
-function Room({ onReady, chatOpen, cameraAgent, statuses, onAgentSelect, onStopFollowing, onHandoff, onSample }: Props) {
-  const gltf = useGLTF(MODEL_URL)
+function Room({ onReady, bridge, statuses, workbench, chatOpen, cameraAgent, onAgentSelect, onStopFollowing, onHandoff, onSample,
+  proteinTable, insulinComparison, proteinWork, onProteinPhase }: Props) {
+  const gltf = useGLTF(workbench ? '/models/Lab_room_workbench.glb' : MODEL_URL)
   const room = useMemo(() => prepareRoom(gltf), [gltf])
 
   useEffect(() => {
@@ -169,15 +180,25 @@ function Room({ onReady, chatOpen, cameraAgent, statuses, onAgentSelect, onStopF
   }, [room])
   const center = useMemo(() => room.bounds.getCenter(new THREE.Vector3()), [room])
   const size = useMemo(() => room.bounds.getSize(new THREE.Vector3()), [room])
+  const proteinAnchor = useMemo(() => {
+    const bench = room.root.getObjectByName('lab_table_left')
+    if (!bench) return new THREE.Vector3(0.15, 0.61, 0)
+    const bounds = new THREE.Box3().setFromObject(bench)
+    return bounds.getCenter(new THREE.Vector3()).setY(bounds.max.y)
+  }, [room])
 
+  const tableActive = Boolean(insulinComparison || proteinTable)
   return (
     <>
       <Lights room={room} />
       <Backdrop room={room} />
       <primitive object={room.root} />
+      {insulinComparison ? <InsulinComparisonTable state={insulinComparison} anchor={proteinAnchor} />
+        : proteinTable && <ProteinTable state={proteinTable} anchor={proteinAnchor} />}
       {/* The five agents load after the room is on screen. */}
       <Suspense fallback={null}>
-        <LabAgents room={room} statuses={statuses} followed={cameraAgent} onSelect={onAgentSelect} onStopFollowing={onStopFollowing} onHandoff={onHandoff} onSample={onSample} />
+        <LabAgents room={room} statuses={statuses} workbench={workbench} bridge={tableActive ? undefined : bridge} followed={cameraAgent} onSelect={onAgentSelect} onStopFollowing={onStopFollowing} onHandoff={onHandoff} onSample={tableActive ? undefined : onSample}
+          proteinActive={tableActive} proteinWork={proteinWork} onProteinPhase={onProteinPhase} />
       </Suspense>
       {/* Restrained grounding shadow under furniture legs; baked once (static room). */}
       <ContactShadows
@@ -190,7 +211,8 @@ function Room({ onReady, chatOpen, cameraAgent, statuses, onAgentSelect, onStopF
         color="#1c2733"
         frames={1}
       />
-      <CameraRig room={room} chatOpen={chatOpen} followingAgent={cameraAgent !== null} />
+      <CameraRig room={room} chatOpen={chatOpen} followingAgent={cameraAgent !== null}
+        proteinAnchor={tableActive ? proteinAnchor : null} comparing={Boolean(insulinComparison)} />
     </>
   )
 }
@@ -226,5 +248,3 @@ export default function LabRoomCanvas(props: Props) {
     </Canvas>
   )
 }
-
-useGLTF.preload(MODEL_URL)

@@ -2,7 +2,7 @@ import {
   ApiError,
   ApiTimeoutError,
   type IngredientRegistryItem,
-} from "@/lib/api";
+} from "./api.ts";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 

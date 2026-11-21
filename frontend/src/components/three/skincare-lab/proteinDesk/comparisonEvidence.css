@@ -1,0 +1,168 @@
+.comparison-evidence {
+  container-type: inline-size;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #254540;
+  font-variant-numeric: tabular-nums;
+}
+.comparison-evidence h4 {
+  margin: 0.7rem 0 0.35rem;
+  color: #173f36;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+.comparison-evidence p {
+  margin: 0.38rem 0;
+  line-height: 1.5;
+}
+.comparison-evidence a {
+  color: #126459;
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
+}
+.comparison-evidence a:focus-visible,
+.comparison-evidence summary:focus-visible {
+  outline: 2px solid #21816f;
+  outline-offset: 2px;
+}
+.ce-models,
+.ce-charts {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+.ce-models > div {
+  padding: 0.4rem 0.6rem;
+  background: #f2f7f4;
+  border-inline-start: 3px solid #9cc7b7;
+}
+.ce-models strong {
+  font-size: 0.85rem;
+}
+.ce-models p {
+  margin: 0.12rem 0;
+}
+.ce-distance span,
+.ce-source span {
+  display: block;
+}
+.ce-legend {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.8rem;
+  font-size: 0.76rem;
+}
+.ce-legend li {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.ce-swatch {
+  width: 0.63rem;
+  height: 0.63rem;
+  flex: none;
+  border: 1px solid #24463c66;
+  border-radius: 50%;
+}
+.ce-ab {
+  background: #19ae8a;
+}
+.ce-cd {
+  background: #3985d9;
+}
+.ce-contact {
+  background: #f2b334;
+}
+.ce-chart {
+  min-width: 0;
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #cfddd7;
+  border-radius: 0.45rem;
+  background: #fff;
+}
+.ce-chart figcaption {
+  font-weight: 650;
+  color: #25483e;
+  margin-bottom: 0.45rem;
+}
+.ce-chart ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.ce-chart li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.13rem 0.4rem;
+  margin: 0.35rem 0;
+  font-size: 0.8rem;
+}
+.ce-chart strong {
+  white-space: nowrap;
+  font-weight: 650;
+}
+.ce-track {
+  grid-column: 1 / -1;
+  height: 0.48rem;
+  overflow: hidden;
+  border-inline-start: 1px solid #b5c5bd;
+  background: #eff3f1;
+}
+.ce-track i {
+  height: 100%;
+  display: block;
+  background: #247c69;
+}
+.ce-track i[data-arm="regular"] {
+  background: #586e81;
+}
+.ce-axis {
+  display: flex;
+  justify-content: space-between;
+  color: #526862;
+  font-size: 0.72rem;
+}
+.ce-note,
+.ce-source {
+  color: #526862;
+  font-size: 0.78rem;
+}
+.ce-findings {
+  margin: 0.4rem 0;
+}
+.ce-findings > div {
+  margin: 0 0 0.55rem;
+}
+.ce-findings dt {
+  font-weight: 700;
+}
+.ce-findings dd {
+  margin: 0.1rem 0;
+}
+.comparison-evidence details {
+  margin-top: 0.35rem;
+  border-top: 1px solid #d8e3de;
+}
+.comparison-evidence summary {
+  color: #225c4c;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.35rem 0.1rem;
+}
+@container (min-width: 24rem) {
+  .ce-models {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@container (min-width: 36rem) {
+  .ce-charts {
+    grid-template-columns: 1fr 1fr;
+  }
+}

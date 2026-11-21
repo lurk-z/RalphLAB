@@ -186,6 +186,16 @@ export default function LabView({ embedded = false, projectId = null, formula, o
                 <p className="text-xs leading-5 text-slate-600">เลือกผู้เชี่ยวชาญหรือแตะตัวละครเพื่อเริ่มคุย</p></div>
             </div>
             <div className="lab-room-actions">
+              <details className="relative shrink-0">
+                <summary className="cursor-pointer rounded-xl border bg-white px-3 py-2 text-sm">ใบงานและโต๊ะทดลอง</summary>
+                <nav aria-label="ใบงานและโต๊ะทดลอง" className="absolute bottom-full z-30 mb-2 grid w-max gap-2 rounded-xl border bg-white p-3 text-sm shadow">
+                  <a href="/lab-room/orders">ใบงาน Agent</a>
+                  <a href="/lab-room?table=station">สถานีทดสอบสูตร</a>
+                  <a href="/lab-room?table=protein">งานโปรตีนบนโต๊ะ 3D</a>
+                  <a href="https://ralphlab-workbench.surawit2003it.chatgpt.site/lab-room/timed">ติดตามตามเวลา</a>
+                  <a href="https://ralphlab-workbench.surawit2003it.chatgpt.site/lab-room/team">ทีม Agent</a>
+                </nav>
+              </details>
               {rolePicker(true)}
               {agentDemoOn && <button type="button" className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-teal-600" onClick={() => {
                 setAgent((value) => value ?? 'director')

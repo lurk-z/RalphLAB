@@ -1,0 +1,59 @@
+.research-shelf {
+  display: grid;
+  gap: 0.9rem;
+  color: #193f38;
+  min-width: 0;
+  margin: 1rem 0;
+}
+.research-shelf h2 {
+  font-size: 1.35rem;
+  font-weight: 650;
+}
+.research-shelf form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #b9d4cc;
+  border-radius: 10px;
+}
+.research-shelf label {
+  display: grid;
+  gap: 0.3rem;
+}
+.research-shelf input,
+.research-shelf select {
+  padding: 0.5rem;
+  width: 100%;
+  border: 1px solid #9dbcb1;
+  border-radius: 6px;
+  background: white;
+}
+.research-shelf button {
+  justify-self: start;
+  padding: 0.55rem 0.9rem;
+  background: #106657;
+  color: white;
+  border-radius: 6px;
+}
+.research-shelf summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.45rem 0;
+}
+.research-shelf article {
+  padding: 0.8rem 0;
+  border-top: 1px solid #bad0c8;
+}
+.research-shelf a {
+  color: #006c59;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.research-shelf p {
+  font-size: 0.95rem;
+  margin: 0.4rem 0;
+  overflow-wrap: anywhere;
+}
+.research-shelf h3 {
+  font-weight: 650;
+}

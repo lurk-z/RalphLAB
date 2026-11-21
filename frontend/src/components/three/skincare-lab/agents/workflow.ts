@@ -4,6 +4,15 @@ import { HANDOFFS, type Progress } from './handoffDemo'
 export type Role = 'director' | 'researcher' | 'formulator' | 'analyst' | 'evaluator'
 export type Team = Record<Role, Agent>
 
+/**
+ * Rework routes the evaluator cycles through (step 5 of the lab workflow):
+ *  - screening says the risk is above the limit   → researcher + formulator
+ *  - the formula breaks a constraint              → formulator
+ *  - not enough evidence for an ingredient         → researcher
+ *  - prediction unreliable / outside the domain    → analyst (model expert)
+ */
+const ROUTES: Role[][] = [['researcher', 'formulator'], ['formulator'], ['researcher'], ['analyst']]
+
 /** Walk to `target`'s visiting spot and talk; a standing owner turns round and answers. */
 async function visit(team: Team, from: Role, target: Role) {
   const a = team[from]
@@ -20,8 +29,46 @@ async function visit(team: Team, from: Role, target: Role) {
   }
 }
 
-export async function runWorkflow(team: Team, sample: Sample, signal: { cancelled: boolean }, publish?: (progress: Progress) => void) {
+/** Leave the station (standing up first when seated), visit, then come back. */
+async function errand(team: Team, from: Role, targets: Role[]) {
+  const a = team[from]
+  if (a.seated) await a.standUp()
+  for (const t of targets) await visit(team, from, t)
+  await a.goHome()
+}
+
+/** One pass through the five-step lab workflow. */
+async function cycle(team: Team, sample: Sample, n: number) {
+  const { director, researcher, formulator, analyst, evaluator } = team
+  // 1. The lab director takes the brief at the Formulation Notes board, then opens the project with the researcher.
+  await director.talk(1)
+  await errand(team, 'director', ['researcher'])
+  // 2. The researcher studies the options and brings a proposal to the formulator.
+  await researcher.work(4)
+  await errand(team, 'researcher', ['formulator'])
+  // 3. The formulator builds sample V1 at the bench and carries it to the analyst.
+  await formulator.work(formulator.duration('Bench_Work'))
+  sample.pickUp(formulator)
+  await formulator.walkTo(analyst.cfg.visit)
+  await formulator.talk(1)
+  sample.putDown()
+  await formulator.goHome()
+  // 4. The analyst runs every endpoint (QSAR etc.) and reports to the evaluator.
+  await analyst.work(6)
+  await errand(team, 'analyst', ['evaluator'])
+  // 5. The evaluator compares the results with the brief and routes the rework.
+  await evaluator.talk(1)
+  await errand(team, 'evaluator', ROUTES[n % ROUTES.length])
+  sample.reset()
+  await director.wait(2)
+}
+
+export async function runWorkflow(team: Team, sample: Sample, signal: { cancelled: boolean }, publish?: (progress: Progress) => void, workbench = false) {
   try {
+    if (workbench && !publish) {
+      for (let n = 0; !signal.cancelled; n++) await cycle(team, sample, n)
+      return
+    }
     do {
       sample.hide()
       for (const [index, row] of HANDOFFS.entries()) {
