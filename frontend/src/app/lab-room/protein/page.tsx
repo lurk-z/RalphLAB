@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/kit/page-header";
 import ProteinWorkbench from "./ProteinWorkbench";
 import "../orders/orders.css";
 
-export default function ProteinPage({
+export default async function ProteinPage({
   searchParams,
 }: {
   searchParams: { angles?: string; pdb?: string };

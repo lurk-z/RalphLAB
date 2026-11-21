@@ -20,6 +20,7 @@ const nextConfig = {
   // Retired pages. Old bookmarks still land somewhere useful instead of a 404.
   async redirects() {
     return [
+      { source: "/", destination: "/login", permanent: false },
       { source: "/register", destination: "/login", permanent: false },
       { source: "/forgot-password", destination: "/login", permanent: false },
       { source: "/settings", destination: "/projects", permanent: false },
