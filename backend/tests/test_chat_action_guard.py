@@ -1,11 +1,13 @@
 """LLM actions are checked before the frontend offers confirmation."""
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from app.api.chat import (
     ChatIn,
@@ -15,10 +17,12 @@ from app.api.chat import (
     _is_sensitisation_ui_test_request,
     _is_toner_creation_request,
     _is_workspace_mutation_request,
+    _lab_reply,
     _parse_actions,
     _sensitisation_ui_test_fallback,
     _strip_action_markup,
     _unsupported_action_ingredients,
+    router,
 )
 
 
@@ -34,6 +38,7 @@ def test_lab_chat_uses_provider_even_for_a_workspace_template(monkeypatch):
 
 def test_lab_without_key_reports_unavailable_while_editor_keeps_template(monkeypatch):
     monkeypatch.setattr("app.api.chat.settings.GROQ_API_KEY", "")
+    monkeypatch.setattr("app.api.chat.settings.OPENAI_API_KEY", "")
     question = "make a gentle toner"
     with pytest.raises(HTTPException) as error:
         asyncio.run(chat(ChatIn(surface="lab", question=question)))
@@ -112,3 +117,42 @@ def test_rejects_and_hides_a_truncated_action_block():
     assert _has_action_markup(answer)
     assert _parse_actions(answer) == []
     assert _strip_action_markup(answer) == "เตรียมรายการปรับแล้วค่ะ"
+
+
+def test_lab_reply_offers_only_complete_formula_proposals():
+    glycerin = {"name": "Glycerin", "concentration": 5}
+    water = {"name": "Water (Aqua)", "smiles": "O", "concentration": 95}
+    complete = {"name": "สูตรเต็ม", "items": [water, glycerin]}
+    partial = {"name": "สูตรยังไม่ครบ", "items": [glycerin]}
+    mixture = {"name": "สารผสม", "items": [{**water, "name": "Aloe Vera"}, glycerin]}
+    blocks = "\n".join(f"<formula>{json.dumps(item)}</formula>" for item in (complete, partial, mixture))
+
+    reply = _lab_reply(f"เสนอสูตรค่ะ\n{blocks}\n<action>[{{\"type\":\"run\"}}]</action>")
+
+    assert reply.answer == "เสนอสูตรค่ะ"
+    assert reply.formula_proposals is not None
+    assert [proposal.model_dump(exclude_none=True) for proposal in reply.formula_proposals] == [
+        complete,
+        {"name": "สารผสม", "items": [{"name": "Aloe Vera", "concentration": 95}, glycerin]},
+    ]
+
+
+def test_lab_chat_returns_proposals_for_other_roles_and_keeps_regular_chat_contract(monkeypatch):
+    monkeypatch.setattr("app.api.chat.settings.GROQ_API_KEY", "test-only")
+    app = FastAPI()
+    app.include_router(router, prefix="/api/chat")
+    client = TestClient(app)
+    question = {"question": "create toner"}
+
+    regular = client.post("/api/chat/", json=question)
+    completion = httpx.Response(200, json={"choices": [{"message": {"content": regular.json()["answer"]}}]})
+    with patch("app.api.chat.httpx.AsyncClient.post", new_callable=AsyncMock, return_value=completion) as post:
+        lab = client.post("/api/chat/", json={**question, "surface": "lab", "lab_role": "formulator"})
+
+    assert regular.status_code == lab.status_code == 200
+    post.assert_awaited_once()
+    assert "<formula>" in post.await_args.kwargs["json"]["messages"][0]["content"]
+    assert set(regular.json()) == {"answer"}
+    expected = _parse_actions(regular.json()["answer"])[0]
+    assert "<action>" not in lab.json()["answer"]
+    assert lab.json()["formula_proposals"] == [{"name": expected["name"], "items": expected["items"]}]

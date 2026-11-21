@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { restoreThreads, type Transcript } from '@/lib/lab-demo/chat-history'
 import { readChatResponse } from '@/lib/lab-demo/chat-response'
+import type { FormulaProposal } from '@/lib/lab-demo/formula-proposal'
 import { assessmentText, assessmentViewRequested, requestedView, type ChatAssessment } from '@/lib/lab-demo/chat-assessment'
 import type { Role } from '../agents/workflow'
 import { demoReply, type Progress } from '../agents/handoffDemo'
@@ -105,7 +106,11 @@ export function useLabAgentChat(projectId: number | null, userId: string, demo =
     const results = formula?.assessment && assessmentText(formula.assessment)
     const showResults = assessmentViewRequested(text)
     const previous = (retry ? thread.messages.slice(0, -1) : thread.messages).slice(-8)
-      .map((item) => `${item.role === 'user' ? 'ผู้ใช้' : 'ผู้ช่วย'}: ${item.text.slice(0, 1200)}`).join('\n')
+      .map((item) => {
+        const recipes = item.proposals?.map(({ name, items }) =>
+          `${name}: ${items.map((ingredient) => `${ingredient.name || ingredient.smiles} ${ingredient.concentration}%`).join(', ')}`) ?? []
+        return `${item.role === 'user' ? 'ผู้ใช้' : 'ผู้ช่วย'}: ${[item.text, ...recipes].join('\n').slice(0, 1200)}`
+      }).join('\n')
     const context = [
       `ตอบในบทบาท${name}ของ Ralph Lab หน้าที่: ${scope}`,
       'ให้คำแนะนำจากหลักฐานในบริบทนี้ แยกข้อสังเกตจากข้อมูลที่ยังขาด ห้ามอ้างว่าได้เปลี่ยนสูตร เดินส่งงาน หรือประเมินจริงจากการสนทนาเพียงอย่างเดียว',
@@ -118,6 +123,7 @@ export function useLabAgentChat(projectId: number | null, userId: string, demo =
     let errorMessage = 'ส่งข้อความไม่สำเร็จ โปรดตรวจการเชื่อมต่อกับ Backend แล้วลองอีกครั้ง'
     try {
       let reply: string | undefined
+      let proposals: FormulaProposal[] | undefined
       if (demo) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 450))
         reply = progress ? demoReply(agent, progress) : 'กำลังเตรียมโครงการทดสอบ D01'
@@ -125,23 +131,24 @@ export function useLabAgentChat(projectId: number | null, userId: string, demo =
         const response = await fetch(`${API}/api/chat/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson, application/json' },
-          body: JSON.stringify({ question: text, context, surface: 'lab' }),
+          body: JSON.stringify({ question: text, context, surface: 'lab', lab_role: agent }),
           signal: controller.signal,
         })
         if (!response.ok) {
-          if (response.status === 503) errorMessage = 'API ยังไม่พร้อม ตรวจว่า Backend ตั้งค่า GROQ_API_KEY แล้ว'
+          if (response.status === 503) errorMessage = 'แชต AI ยังไม่พร้อม ตรวจว่า Backend ตั้งค่า GROQ_API_KEY หรือ OPENAI_API_KEY แล้ว'
           if (response.status === 429) errorMessage = 'ถึงขีดจำกัดคำขอ API ชั่วคราว รอสักครู่แล้วลองอีกครั้ง'
-          if (response.status === 502) errorMessage = 'ติดต่อผู้ให้บริการ AI ไม่สำเร็จ ตรวจคีย์ รุ่นโมเดล และการเชื่อมต่อของ Backend'
+          if (response.status === 502) errorMessage = 'แชต AI เชื่อมต่อไม่สำเร็จ ตรวจคีย์และโมเดลของ Groq หรือ OpenAI ที่ตั้งไว้ใน Backend'
           throw new Error(`HTTP ${response.status}`)
         }
-        const answer = await readChatResponse(response, recordStep)
+        const result = await readChatResponse(response, recordStep)
+        proposals = result.proposals
         recordStep('รับคำตอบจาก API')
         // The Lab chat is advisory. The legacy API can include commands for the old editor.
-        reply = answer.replace(/<action\b[^>]*>[\s\S]*?(?:<\/action>|$)|```(?:actions?|formula|json)\b[\s\S]*?(?:```|$)/gi, '').trim().slice(0, 20_000)
+        reply = result.answer.replace(/<action\b[^>]*>[\s\S]*?(?:<\/action>|$)|```(?:actions?|formula|json)\b[\s\S]*?(?:```|$)/gi, '').trim().slice(0, 20_000)
       }
       if (controller.signal.aborted) return
-      if (!reply) throw new Error('Empty answer')
-      addMessage(id, agent, { id: makeChatId(), role: 'assistant', text: reply, time: Date.now(), startedAt, publicSteps: steps,
+      if (!reply && !proposals?.length) throw new Error('Empty answer')
+      addMessage(id, agent, { id: makeChatId(), role: 'assistant', text: reply || '', time: Date.now(), startedAt, publicSteps: steps, proposals,
         assessment: !demo && showResults && formula?.assessment ? { ...formula.assessment, view: requestedView(text) } : undefined })
     } catch {
       if (!controller.signal.aborted) {

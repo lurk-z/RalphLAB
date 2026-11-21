@@ -1,6 +1,6 @@
-# คู่มือตั้งค่า Google Login สำหรับ RalphGuard
+# คู่มือตั้งค่า Google Login สำหรับ RalphLAB
 
-RalphGuard ใช้ Google OAuth ผ่าน NextAuth โดย Frontend ออก token อายุสั้นให้ Backend ตรวจสอบ โปรเจกต์และผลประเมินจึงถูกแยกตามบัญชีผู้ใช้
+แอป Next.js ใช้ Google OAuth ผ่าน NextAuth ส่วน RalphLAB Cloud รับ callback ที่ Site ของตัวเอง ทั้งสองแอปพาผู้ใช้ไปหน้าโปรเจกต์หลังยืนยันบัญชี เมื่อสร้างหรือเลือกโปรเจกต์แล้วจึงเปิดห้องแล็ป ทั้งสองระบบจัดเก็บโปรเจกต์แยกกัน
 
 ## 1. สร้าง Secret กลาง
 
@@ -29,10 +29,13 @@ https://<โดเมน-vercel>
 
 ```text
 http://localhost:3000/api/auth/callback/google
+https://ralphlab-workbench.surawit2003it.chatgpt.site/api/auth/callback/google
 https://<โดเมน-vercel>/api/auth/callback/google
 ```
 
 7. คัดลอก Client ID และ Client Secret
+
+สำหรับ Cloud ให้บันทึก `GOOGLE_CLIENT_ID` และ `GOOGLE_CLIENT_SECRET` เป็น Secrets ของ Site แล้ว deploy เวอร์ชันที่ต้องการ สำหรับแอป Next.js ให้ใช้ `frontend/.env.local` และตั้ง `LOGIN_ENABLED=true` ที่รากโปรเจกต์
 
 ถ้า OAuth consent screen ยังอยู่สถานะ **Testing** ให้เพิ่มอีเมล Google ที่จะใช้ทดสอบในเมนู **Audience > Test users** ด้วย ไม่เช่นนั้นบัญชีที่ไม่ได้เพิ่มอาจเข้าสู่ระบบไม่ได้
 

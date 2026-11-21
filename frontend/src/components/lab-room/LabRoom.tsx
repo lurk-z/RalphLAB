@@ -267,7 +267,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
                 </SceneBoundary>
               </div>
               {desk && deskSignedIn ? <ProteinDeskPanel binding={desk} desk={protein} />
-                : deskLauncher ? <DeskLauncher signedIn={deskSignedIn} localLogin={deskLocalLogin} />
+                : deskLauncher ? <DeskLauncher projectId={projectId} signedIn={deskSignedIn} localLogin={deskLocalLogin} />
                 : demoChat && progress ? (
                   <button type="button" onClick={() => selectAgent(HANDOFFS[progress.index].from)} className="absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] rounded-xl bg-white/95 px-3 py-2 text-left text-xs shadow-sm">
                     <span className="block text-teal-700">โครงการจำลอง D01 · {progress.index + 1}/{HANDOFFS.length}</span>

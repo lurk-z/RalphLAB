@@ -7,6 +7,7 @@ import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { api, http, apiErrorMessage } from "@/lib/api";
+import { selectLabProject } from "@/lib/select-lab-project";
 import NewOrder from "./NewOrder";
 import OrderDetail from "./OrderDetail";
 import StartBrief from "./StartBrief";
@@ -194,6 +195,16 @@ export default function WorkOrders({
     return () => ctrl.abort();
   }, [signedIn, initialProject]);
   const current = projects.find((p) => p.id === id);
+  async function openProject(project: Project | undefined) {
+    if (!project) { setId(0); return; }
+    setBusy(true);
+    try {
+      if (project.owner) await selectLabProject(project.id);
+      window.location.assign("/lab-room/orders?project=" + project.id);
+    } catch {
+      setError("เปิดโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง");
+    } finally { setBusy(false); }
+  }
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -201,7 +212,7 @@ export default function WorkOrders({
     try {
       const p = await api.createProject(name.trim());
       setProjects((ps) => [{ id: p.id, name: p.name, owner: true }, ...ps]);
-      setId(p.id);
+      await openProject({id:p.id, name:p.name, owner:true});
       setName("");
     } catch (e) {
       setError(apiErrorMessage(e, "สร้างโครงการไม่ได้"));
@@ -220,7 +231,8 @@ export default function WorkOrders({
               โครงการ
               <select
                 value={id}
-                onChange={(e) => setId(Number(e.target.value))}
+                disabled={busy}
+                onChange={(e) => void openProject(projects.find(p => p.id === Number(e.target.value)))}
               >
                 <option value={0}>เลือกโครงการ</option>
                 {projects.map((p) => (

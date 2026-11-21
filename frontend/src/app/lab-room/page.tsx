@@ -1,9 +1,10 @@
-import { getServerSession } from "next-auth";
+import { currentSession, requireActiveProject } from "@/lib/active-project";
+import { localLabPreview } from "@/lib/lab-preview";
 import { redirect } from "next/navigation";
 import LabRoom from "@/components/lab-room/LabRoom";
-import { authOptions, localWorkOrderDemo } from "@/lib/auth";
+import { localWorkOrderDemo } from "@/lib/auth";
 import { loginEnabled } from "@/lib/login-mode";
-import { loginRedirect, parseRoomQuery } from "@/lib/lab-room/route";
+import { loginRedirect, parseRoomQuery, roomHref } from "@/lib/lab-room/route";
 
 /**
  * `/lab-room` · the canonical room. Every entry (bare, D01, a project, a work order or protein
@@ -13,17 +14,22 @@ import { loginRedirect, parseRoomQuery } from "@/lib/lab-room/route";
 export default async function LabRoomPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const parsed = parseRoomQuery(searchParams);
   if (!parsed.state) redirect(parsed.redirect);
-  const state = parsed.state;
-  const session = loginEnabled ? await getServerSession(authOptions) : null;
-  // A local developer without Google sign-in keeps the existing local work-order preview.
-  const localDevelopment = process.env.NODE_ENV === "development" && !process.env.GOOGLE_CLIENT_ID;
-  if (loginEnabled && !session && !localDevelopment) redirect(loginRedirect(state));
+  const requested = parsed.state;
+  const session = loginEnabled ? await currentSession() : null;
+  if (loginEnabled && !session?.user) redirect(loginRedirect(requested));
+  const context = requested.context;
+  const id = context.kind === "project" || context.kind === "order" || context.kind === "demo" ? context.projectId : null;
+  const active = await requireActiveProject(id == null ? undefined : String(id), context.kind === "order", roomHref(requested));
+  const state = active && context.kind === "none"
+    ? { ...requested, context: { kind: "project" as const, projectId: active } }
+    : active && context.kind === "demo" ? { ...requested, context: { ...context, projectId: active } } : requested;
   const viewer = session?.user?.id ?? session?.user?.email ?? "guest";
   return (
     <LabRoom
+      key={JSON.stringify([viewer, state.context])}
       initial={state}
       viewer={viewer}
-      localPreview={loginEnabled && (!session || Boolean(session.user?.id?.startsWith("local-demo-")))}
+      localPreview={localLabPreview}
       deskSignedIn={!loginEnabled || Boolean(session?.user)}
       deskLocalLogin={localWorkOrderDemo}
     />

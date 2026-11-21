@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { loginReturnPath } from "@/lib/login-return";
+import { parseRoomQuery, roomHref } from "@/lib/lab-room/route";
+import { selectLabProject } from "@/lib/select-lab-project";
 import { toast } from "sonner";
 import { AlertCircle, FolderOpen, Plus, RefreshCw, SearchX, Trash2 } from "lucide-react";
 
@@ -143,12 +145,29 @@ export default function ProjectsPage() {
   const byId = (id: string) => projects.find((p) => String(p.id) === id);
 
   /* ---------------- open ---------------- */
-  const openProject = (id: string) => {
+  const openProject = async (id: string) => {
     if (openingProject) return;
-    window.localStorage.setItem(LAST_OPENED_PROJECT_STORAGE_KEY, id);
     setOpeningProject(true);
-    // Go straight to the workspace (no /projects/[id]/assess redirect hop).
-    router.push(`/assess?projectId=${id}`);
+    try {
+      await selectLabProject(Number(id));
+    } catch {
+      setOpeningProject(false);
+      toast.error("เปิดโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง");
+      return;
+    }
+    window.localStorage.setItem(LAST_OPENED_PROJECT_STORAGE_KEY, id);
+    const target = loginReturnPath(new URLSearchParams(window.location.search).get("callbackUrl") ?? undefined);
+    const url = new URL(target, window.location.origin);
+    if (url.pathname === "/lab-room") {
+      const parsed = parseRoomQuery(Object.fromEntries(url.searchParams));
+      const context = parsed.state?.context;
+      const requested = context && "projectId" in context ? context.projectId : null;
+      if (parsed.state && (requested === null || requested === Number(id) || context?.kind === "order")) {
+        router.push(roomHref(parsed.state));
+        return;
+      }
+    }
+    router.push(`/lab-room?projectId=${id}`);
     // If the page never changes (server down, blocked navigation) drop the full-screen loader.
     openTimerRef.current = setTimeout(() => {
       setOpeningProject(false);
@@ -180,6 +199,7 @@ export default function ProjectsPage() {
         const created = await api.createProject(trimmed, undefined, "teal", "flask", controller.signal);
         setProjects((rows) => [created, ...rows]);
         toast.success(`สร้างโปรเจกต์ “${created.name}” แล้ว`);
+        await openProject(String(created.id));
       }
       setDialogOpen(false);
     } catch (cause) {
@@ -243,7 +263,7 @@ export default function ProjectsPage() {
       <main className="mx-auto w-full max-w-6xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <PageHeader
           title="โปรเจกต์ทั้งหมด"
-          description="เลือกโปรเจกต์เพื่อจัดการสูตรและดูผลประเมิน"
+          description="สร้างหรือเลือกโปรเจกต์เพื่อเข้าห้องแล็ป"
           actions={
             <>
               {hasProjects && (
@@ -257,7 +277,6 @@ export default function ProjectsPage() {
                   containerClassName="flex-1 sm:w-72 sm:flex-none"
                 />
               )}
-              <Button asChild variant="outline" className="shrink-0"><Link href="/lab-room/orders">ใบงาน Agent</Link></Button>
               <Button onClick={() => openDialog(null)} className="shrink-0">
                 <Plus /> สร้างโปรเจกต์
               </Button>
@@ -313,7 +332,7 @@ export default function ProjectsPage() {
                 <FolderOpen />
               </EmptyMedia>
               <EmptyTitle>ยังไม่มีโปรเจกต์</EmptyTitle>
-              <EmptyDescription>สร้างโปรเจกต์แรกเพื่อเริ่มประเมินสูตรผลิตภัณฑ์</EmptyDescription>
+              <EmptyDescription>ตั้งชื่อโปรเจกต์แรกเพื่อเปิดห้องแล็ปของคุณ</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
               <Button size="lg" onClick={() => openDialog(null)}>

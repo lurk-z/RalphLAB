@@ -1,8 +1,9 @@
 import { ROLE_EN } from "./engine.ts";
 import { isChatAssessment, type ChatAssessment } from "./chat-assessment.ts";
 import { scopeKey, type AgentRole, type DemoScope, type LabDemoState } from "./events.ts";
+import { readFormulaProposal, type FormulaProposal } from "./formula-proposal.ts";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; time: number; publicSteps?: string[]; startedAt?: number; assessment?: ChatAssessment; receipt?: boolean };
+type Message = { id: string; role: "user" | "assistant"; text: string; time: number; publicSteps?: string[]; startedAt?: number; assessment?: ChatAssessment; receipt?: boolean; proposals?: FormulaProposal[]; proposalMessageId?: string };
 export function publicSteps(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && Boolean(v.trim())).slice(0, 30).map(v => v.slice(0, 500)) : [];
 }
@@ -21,8 +22,12 @@ export function restoreThreads(value: unknown): Transcript[] {
         // Old workflow transcripts stored the receipt as prose under these generated ids.
         const legacyReceipt = m.role === "assistant" && (m.id.endsWith(":accept") ||
           (/:msg-\d+$/.test(m.id) && m.text === "รับงานแล้ว กำลังตรวจโจทย์ที่ส่งมา"));
+        const proposals = m.role === "assistant" && Array.isArray(m.proposals)
+          ? m.proposals.map(readFormulaProposal).filter((proposal) => proposal !== null)
+          : undefined;
+        const proposalMessageId = proposals?.length && typeof m.proposalMessageId === "string" && m.proposalMessageId.trim() ? m.proposalMessageId : undefined;
         return { ...m, publicSteps: publicSteps(m.publicSteps), startedAt: timestamp(m.startedAt) ? m.startedAt : undefined,
-          receipt: m.receipt === true || legacyReceipt, assessment: isChatAssessment(m.assessment) ? m.assessment : undefined };
+          receipt: m.receipt === true || legacyReceipt, proposals, proposalMessageId, assessment: isChatAssessment(m.assessment) ? m.assessment : undefined };
       });
     const last = messages.at(-1);
     return last ? [{ id: item.id, agent: item.agent as AgentRole, messages: trimMessages(messages), updatedAt: timestamp(item.updatedAt) ? item.updatedAt : last.time }] : [];
@@ -84,6 +89,10 @@ export function createChatArchive(storage: () => StorageAccess, sessionId: strin
       const message: Message = { id: sessionId + ":" + m.messageId, role: m.kind === "user" ? "user" : "assistant", text, time };
       if (m.kind === "agent" && m.activity) message.publicSteps = [m.activity];
       if (m.kind === "agent" && m.assessment) message.assessment = m.assessment;
+      if (m.kind === "agent" && m.proposal) {
+        message.proposals = [m.proposal];
+        message.proposalMessageId = m.messageId;
+      }
       if (m.kind === "acceptance" || (m.kind === "agent" && m.taskId && m.inReplyTo)) message.receipt = true;
       const event = state.log.at(-1);
       if (event?.type === "task.completed") message.publicSteps = state.tasks[event.taskId].steps.map(step => step.label);

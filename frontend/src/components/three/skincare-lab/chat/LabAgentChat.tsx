@@ -20,6 +20,7 @@ import { DemoChatHeader, DemoInbox } from './DemoConversations'
 import MessageMeta from './MessageMeta'
 import ChatActivity, { elapsedLabel } from './ChatActivity'
 import type { AgentDemo } from './useAgentDemo'
+import FormulaProposalCard from './FormulaProposalCard'
 
 import { ROLE_SCOPE } from '@/lib/lab-demo/roles'
 
@@ -70,8 +71,9 @@ function ChatMessages({ messages }: { messages: Thread['messages'] }) {
         <ol>{message.publicSteps.map((step, index) => <li key={index}>{step}</li>)}</ol>
       </ChatActivity>}
       {message.receipt ? <span role="img" title="ส่งถึงผู้รับแล้ว" aria-label="ส่งถึงผู้รับแล้ว"><CircleCheck aria-hidden="true" className="size-4 text-teal-700" /></span>
-        : <ReplyText text={message.text} animate={!existingReplies.has(message.id)} />}
+        : message.text && <ReplyText text={message.text} animate={!existingReplies.has(message.id)} />}
       {message.assessment && <AssessmentReply data={message.assessment} />}
+      {message.proposals?.map((proposal, index) => <FormulaProposalCard key={index} id={`${message.proposalMessageId ?? message.id}:${index}`} proposal={proposal} />)}
       {!message.receipt && <MessageMeta text={message.assessment ? message.text + '\n' + assessmentText(message.assessment) : message.text} time={message.time} />}
     </article>
   ))

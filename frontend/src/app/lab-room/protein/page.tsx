@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireActiveProject } from "@/lib/active-project";
 import { PageHeader } from "@/components/kit/page-header";
 import ProteinWorkbench from "./ProteinWorkbench";
 import "../orders/orders.css";
@@ -8,6 +9,7 @@ export default function ProteinPage({
 }: {
   searchParams: { angles?: string; pdb?: string };
 }) {
+  await requireActiveProject();
   const poses =
     typeof searchParams.angles === "string"
       ? searchParams.angles.split(",").map(Number)

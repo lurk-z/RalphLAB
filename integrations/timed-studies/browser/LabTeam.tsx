@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import QsarPanel from "./QsarPanel";
 import "./timed.css";
 
 type Agent = {
@@ -114,6 +115,7 @@ export default function LabTeam() {
       </nav>
       <h1>ทีมนักวิจัย RalphLAB</h1>
       {message && <p role="alert">{message}</p>}
+      {team && <QsarPanel key={study} study={study}/>}
       {!team && !message && <p role="status">กำลังโหลดทีม…</p>}
       {team && (
         <>

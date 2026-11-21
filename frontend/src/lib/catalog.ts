@@ -321,9 +321,16 @@ export type ProductTemplate = {
   risk?: RiskLevel; // expected risk band — for the test-by-level dropdown
 };
 
-/** True if an item is the water/aqua base. */
+const WATER_NAMES = new Set([
+  "water", "aqua", "water (aqua)", "water(aqua)", "aqua (water)", "aqua(water)", "h2o",
+  "distilled water", "deionized water", "deionised water", "di water", "purified water",
+  "demineralized water", "demineralised water", "น้ำ", "น้ำกลั่น", "น้ำบริสุทธิ์", "น้ำปราศจากไอออน",
+].map((name) => name.normalize("NFKC")));
+
+/** True for plain water, including its common ingredient labels. */
 export function isWaterItem(it: { name?: string; smiles?: string }): boolean {
-  return (it.smiles || "").trim() === "O" || /\b(water|aqua|น้ำ)\b/i.test(it.name || "");
+  const name = (it.name || "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+  return it.smiles?.trim() === "O" || WATER_NAMES.has(name);
 }
 
 /**

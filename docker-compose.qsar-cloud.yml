@@ -1,0 +1,16 @@
+services:
+  qsar-cloud:
+    profiles: [qsar]
+    image: ${COMPOSE_PROJECT_NAME:-ralphlab}-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ralphguard}:${POSTGRES_PASSWORD:-ralphguard_dev}@postgres:5432/${POSTGRES_DB:-ralphguard}
+      RALPHLAB_SITE_URL: ${RALPHLAB_SITE_URL:-https://ralphlab-workbench.surawit2003it.chatgpt.site}
+      QSAR_RUNNER_TOKEN: ${QSAR_RUNNER_TOKEN:?Set the paired RalphLAB runner credential}
+      OMP_NUM_THREADS: "1"
+    volumes:
+      - ./scientific:/app:ro
+    command: python -u cloud_runner.py

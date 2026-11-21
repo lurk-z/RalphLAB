@@ -1,6 +1,5 @@
-import { loginEnabled } from "@/lib/login-mode";
-import { getServerSession } from "next-auth";
-import { authOptions, localWorkOrderDemo } from "@/lib/auth";
+import { requireActiveProject } from "@/lib/active-project";
+import { localWorkOrderDemo } from "@/lib/auth";
 import WorkOrders from "./WorkOrders";
 import "./orders.css";
 
@@ -9,14 +8,14 @@ export default async function OrdersPage({
 }: {
   searchParams: { project?: string; order?: string };
 }) {
-  const session = loginEnabled ? await getServerSession(authOptions) : null;
+  const active = await requireActiveProject(searchParams.project, true);
   return (
     <WorkOrders
-      initialProject={Number(searchParams.project) || 0}
+      initialProject={active ?? 0}
       initialOrder={
         typeof searchParams.order === "string" ? searchParams.order : ""
       }
-      signedIn={!loginEnabled || Boolean(session?.user)}
+      signedIn
       localDemo={localWorkOrderDemo}
     />
   );

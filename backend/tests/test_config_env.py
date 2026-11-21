@@ -7,6 +7,8 @@ def test_settings_loads_environment_when_run_from_backend_dir(monkeypatch):
     monkeypatch.chdir(backend_dir)
     monkeypatch.setenv("GROQ_API_KEY", "test-key")
     monkeypatch.setenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
     monkeypatch.setenv("ASSESSMENT_EXECUTION_MODE", "inline")
 
     import app.core.config as config
@@ -15,4 +17,6 @@ def test_settings_loads_environment_when_run_from_backend_dir(monkeypatch):
 
     assert config.settings.GROQ_API_KEY == "test-key"
     assert config.settings.GROQ_MODEL == "openai/gpt-oss-120b"
+    assert config.settings.OPENAI_API_KEY == "openai-test-key"
+    assert config.settings.OPENAI_MODEL == "gpt-5.4-mini"
     assert config.settings.ASSESSMENT_EXECUTION_MODE == "inline"
