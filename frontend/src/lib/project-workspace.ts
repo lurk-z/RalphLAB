@@ -2,8 +2,8 @@ import type { AssessmentRecord, FormulaItem, Region } from "@/lib/api";
 
 const WORKSPACE_VERSION = 1 as const;
 const WORKSPACE_KEY_PREFIX = `ralphguard:workspace:v${WORKSPACE_VERSION}:`;
-const MAX_FORMULAS = 100;
-const MAX_ITEMS_PER_FORMULA = 500;
+export const MAX_FORMULAS = 100;
+export const MAX_ITEMS_PER_FORMULA = 500;
 const MAX_PAINT_MASK_LENGTH = 1_500_000;
 const MAX_GRAPH_NODES = 200;
 const MAX_GRAPH_EDGES = 500;

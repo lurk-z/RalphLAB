@@ -112,6 +112,7 @@ import {
 } from "@/lib/substance-library-local";
 import {
   FORMULA_GRAPH_DRAFT_ID,
+  MAX_FORMULAS,
   loadProjectWorkspace,
   formulaAssessmentSignature,
   saveProjectWorkspace,
@@ -122,6 +123,8 @@ import {
   type WorkspaceFormula,
   type WorkspaceMode,
 } from "@/lib/project-workspace";
+import { LabFormulaBox } from "@/components/three/skincare-lab/chat/FormulaProposalCard";
+import type { FormulaProposal } from "@/lib/lab-demo/formula-proposal";
 
 // ── 3D head (client-only). Auto-fills irritation by the result intensity. ──
 const FaceView = dynamic(
@@ -623,6 +626,34 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
   );
   const latestWorkspaceDraft = useRef(workspaceDraft);
   latestWorkspaceDraft.current = workspaceDraft;
+  const formulaWorkspace = useRef({ projectId, ready: projectContextStatus !== "loading" });
+  formulaWorkspace.current = { projectId, ready: projectContextStatus !== "loading" };
+
+  const addLabProposal = async (id: string, proposal: FormulaProposal) => {
+    const workspace = formulaWorkspace.current;
+    if (latestWorkspaceDraft.current.formulas.some((entry) => entry.id === id)) return;
+    const ingredients = proposal.items.filter((item) => !isWaterItem(item));
+    const items = await Promise.all(ingredients.map(async (item) => {
+      if (!item.smiles || resolveCatalogSubstance(item.name || "")?.smiles === item.smiles) return item;
+      const checked = await api.validateSmiles(item.smiles);
+      const structure = checked.canonical || item.smiles;
+      return { ...item, smiles: checked.valid && !isWaterItem({ smiles: structure }) ? structure : "" };
+    }));
+    if (!workspace.ready || workspace.projectId !== formulaWorkspace.current.projectId) {
+      throw new Error("โครงการเปลี่ยนระหว่างสร้างสูตร กรุณาลองอีกครั้ง");
+    }
+    const current = latestWorkspaceDraft.current;
+    if (current.formulas.some((entry) => entry.id === id)) return;
+    if (current.formulas.length >= MAX_FORMULAS) throw new Error("กล่องสูตรเต็มแล้ว");
+
+    const created: WorkspaceFormula = { id, name: proposal.name, type: "สูตรจากแล็บ", region: current.region, items };
+    // Reserve the ID before React commits, including concurrent clicks from separate cards.
+    latestWorkspaceDraft.current = { ...current, formulas: [...current.formulas, created], activeFormulaId: id };
+    setFormulas((previous) => [...previous, created]);
+    setActiveId(id);
+    setExpandedFormulaIds((previous) => new Set([...previous, id]));
+    setFormulaSidebarCollapsed(false);
+  };
 
   // Save a sanitized, project-scoped draft after meaningful workspace changes.
   // Hydration must finish first so the default React state can never overwrite
@@ -2210,10 +2241,15 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
         {workspaceTabs}
       </header>
       <section aria-label="ห้องแล็บ 3D" className="relative min-h-0 overflow-hidden">
-        <LabView embedded projectId={projectId} onOpenGraph={openGraph} formula={activeFormula ? {
-          id: activeFormula.id, name: productName, items: activeFormula.items,
-          assessment: chatAssessment(assessment, productName),
-        } : undefined} />
+        <LabFormulaBox.Provider value={projectContextStatus === "loading" ? null : {
+          formulaIds: new Set(formulas.map(({ id }) => id)),
+          add: addLabProposal,
+        }}>
+          <LabView embedded projectId={projectId} onOpenGraph={openGraph} formula={activeFormula ? {
+            id: activeFormula.id, name: productName, items: withWaterBase(activeFormula.items),
+            assessment: chatAssessment(assessment, productName),
+          } : undefined} />
+        </LabFormulaBox.Provider>
       </section>
     </div>;
   }
@@ -2520,21 +2556,10 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
                   {formulas.map((f) => {
                     const selected = f.id === activeId;
                     const expanded = expandedFormulaIds.has(f.id);
-                    const formulaTotalPct =
-                      Math.round(
-                        f.items.reduce(
-                          (sum, item) => sum + (Number(item.concentration) || 0),
-                          0,
-                        ) * 10,
-                      ) / 10;
-                    const formulaWaterPct = Math.max(
-                      0,
-                      Math.round((100 - formulaTotalPct) * 10) / 10,
-                    );
-                    const formulaExcessPct = Math.max(
-                      0,
-                      Math.round((formulaTotalPct - 100) * 10) / 10,
-                    );
+                    const sum = f.items.reduce((total, item) => total + (Number(item.concentration) || 0), 0);
+                    const formulaTotalPct = Number(sum.toFixed(6));
+                    const formulaWaterPct = Math.max(0, Number((100 - sum).toFixed(6)));
+                    const formulaExcessPct = Math.max(0, Number((sum - 100).toFixed(6)));
                     const formulaWaterMissing =
                       WATER_BASED_TYPES.has(f.type || "") && formulaWaterPct <= 0;
                     const formulaRegionMeta =

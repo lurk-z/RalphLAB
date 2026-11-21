@@ -34,6 +34,7 @@ import {
   DEFAULT_SCENARIO, ENDPOINT_TH, SEARCH_LIMIT, SearchError, baselineSources, draftQuery, scopeKeyOf,
   type Approver, type ResearchScope, type Scenario, type SearchAdapter, type SourceRecord,
 } from "./research.ts";
+import { PRODUCT_TEMPLATES, withWaterBase } from "../catalog.ts";
 
 // ---------------------------------------------------------------- store
 
@@ -819,6 +820,17 @@ export function createLabDemo({
       ? { kind: "read" as const } : classifyIntent(text);
     const answerTo = question?.from === agent && intent.kind !== "clarify" ? question.messageId : undefined;
     emit({ type: "message.user", messageId: userMessageId, to: agent, text, answerTo, experimentId, threadId });
+
+    if (/^(?:ขอ|แนะนำ|ขอดู)(?:ตัวอย่าง)?สูตรเต็ม(?:\s*(?:ครับ|ค่ะ))?[.!?]?$/u.test(text.trim())) {
+      const sample = PRODUCT_TEMPLATES.find(({ id }) => id === "toner");
+      if (sample) {
+        // Formula imports outlive the demo run, whose message counter can be reset.
+        emit({ type: "message.agent", messageId: `${nextMessageId()}-${session}`, from: agent, inReplyTo: userMessageId,
+          text: "ขอเสนอสูตรตัวอย่างจากคลังสูตรสำหรับทดลองนำเข้ากล่องสูตร",
+          proposal: { name: sample.name, items: withWaterBase(sample.formula) }, experimentId, threadId });
+        return { intent: { kind: "read" } };
+      }
+    }
 
     if (/คุณเป็นใคร|หน้าที่ของคุณ|ทำหน้าที่อะไร|who are you|your role/i.test(text)) {
       emit({ type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId,

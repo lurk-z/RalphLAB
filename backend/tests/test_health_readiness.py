@@ -2,6 +2,7 @@
 import asyncio
 import json
 
+import pytest
 from fastapi.responses import JSONResponse
 
 from app.api import health
@@ -33,10 +34,13 @@ def _session_factory():
     return _Db()
 
 
-def test_ready_checks_auth_ai_schema_and_catalogues(monkeypatch):
+@pytest.mark.parametrize("api_key_setting", ["GROQ_API_KEY", "OPENAI_API_KEY"])
+def test_ready_checks_auth_ai_schema_and_catalogues(monkeypatch, api_key_setting):
     monkeypatch.setattr(health, "SessionLocal", _session_factory)
     monkeypatch.setattr(health.settings, "AUTH_SECRET", "configured")
-    monkeypatch.setattr(health.settings, "GROQ_API_KEY", "configured")
+    monkeypatch.setattr(health.settings, "GROQ_API_KEY", "")
+    monkeypatch.setattr(health.settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(health.settings, api_key_setting, "configured")
     monkeypatch.setattr(health.settings, "ASSESSMENT_EXECUTION_MODE", "inline")
 
     response = asyncio.run(health.ready())
@@ -58,3 +62,16 @@ def test_ready_returns_503_when_auth_is_missing(monkeypatch):
     payload = json.loads(response.body)
     assert payload["status"] == "degraded"
     assert payload["checks"]["auth_config"] == "fail: not_configured"
+
+
+def test_ready_returns_503_when_no_ai_provider_is_configured(monkeypatch):
+    monkeypatch.setattr(health, "SessionLocal", _session_factory)
+    monkeypatch.setattr(health.settings, "AUTH_SECRET", "configured")
+    monkeypatch.setattr(health.settings, "GROQ_API_KEY", "  ")
+    monkeypatch.setattr(health.settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(health.settings, "ASSESSMENT_EXECUTION_MODE", "inline")
+
+    response = asyncio.run(health.ready())
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+    assert json.loads(response.body)["checks"]["llm_config"] == "fail: not_configured"

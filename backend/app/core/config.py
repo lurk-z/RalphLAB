@@ -54,10 +54,11 @@ class Settings(BaseSettings):
     MODELS_DIR: str = "/models"
     SCIENTIFIC_RUNTIME_DIR: str = "/scientific"
 
-    # LLM for the voice assistant — Groq (OpenAI-compatible, free). Key is read
-    # from the environment / .env only — never hard-coded, never sent to browser.
+    # Chat uses Groq first and OpenAI as the fallback. Both keys stay on the server.
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "openai/gpt-oss-120b"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-5.4-mini"
 
 
 settings = Settings()
