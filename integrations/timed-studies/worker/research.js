@@ -158,6 +158,7 @@ async function priorEvidence(db, user, scope, topic) {
   const latest = new Map();
   for (const record of rows.results) {
     const run = JSON.parse(record.payload);
+    if (run.status !== "done") continue;
     for (const source of run.sources) {
       const review = source.review;
       if (
@@ -169,6 +170,11 @@ async function priorEvidence(db, user, scope, topic) {
           title: source.title,
           url: source.url,
           topic: run.topic,
+          ...(source.file && {
+            file: source.file.href,
+            locator: source.locator,
+            excerpt: source.excerpt,
+          }),
         });
       }
     }
@@ -243,7 +249,9 @@ async function researchAPI(request, env, url) {
   const parts = url.pathname.split("/").filter(Boolean);
   const [, , type, key] = parts;
   requireTimed(
-    parts.length === 4 && ["timed", "project"].includes(type),
+    (parts.length === 4 ||
+      (parts[4] === "files" && [5, 7].includes(parts.length))) &&
+      ["timed", "project"].includes(type),
     "ไม่พบคลังอ้างอิง",
     404,
   );
@@ -261,6 +269,8 @@ async function researchAPI(request, env, url) {
     await projectFor(db, user, Number(key));
   }
   const scope = type + "/" + key;
+  if (parts.length === 7)
+    return downloadSource(request, env, db, user, scope, parts[5], parts[6]);
   const read = async () => {
     const rows = await db
       .prepare(
@@ -268,8 +278,14 @@ async function researchAPI(request, env, url) {
       )
       .bind(user, scope)
       .all();
-    return rows.results.map((r) => JSON.parse(r.payload));
+    return rows.results
+      .map((r) => JSON.parse(r.payload))
+      .filter((r) => r.status !== "uploading");
   };
+  if (parts.length === 5) {
+    await uploadSource(request, env, db, user, scope, context);
+    return json({ roles: RESEARCH_ROLES, runs: await read() });
+  }
   if (request.method === "GET")
     return json({ roles: RESEARCH_ROLES, runs: await read() });
   requireTimed(request.method === "POST", "ไม่รองรับวิธีนี้", 405);
@@ -291,6 +307,7 @@ async function researchAPI(request, env, url) {
     requireTimed(saved, "ไม่พบการค้นนี้", 404);
     const run = JSON.parse(saved.payload),
       source = run.sources.find((s) => s.id === b.source);
+    requireTimed(run.status === "done", "แหล่งนี้ยังบันทึกไม่เสร็จ", 409);
     requireTimed(source, "ไม่พบแหล่งนี้ในผลค้น", 404);
     source.review = {
       decision: b.decision,
@@ -298,6 +315,9 @@ async function researchAPI(request, env, url) {
       hypothesis: b.hypothesis ? label(b.hypothesis, 600) : "",
       at: Date.now(),
     };
+    if (b.decision === "use" && !source.file) {
+      source.file = await archiveCitation(env, user, scope, run, source);
+    }
     const changed = await db
       .prepare(
         "UPDATE research_runs SET payload=?,revision=revision+1 WHERE id=? AND revision=?",

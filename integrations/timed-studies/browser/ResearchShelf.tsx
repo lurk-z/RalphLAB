@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./research.css";
+import SourceUpload from "./SourceUpload";
 
 type Base = { name: string; title: string; url: string; use: string };
 type Review = { decision: string; note: string; hypothesis: string };
@@ -10,9 +11,19 @@ type Source = {
   kind: string;
   detail: string;
   review?: Review;
+  file?: { name: string; bytes: number; href: string };
+  origin?: string;
+  excerpt?: string;
 };
-type Used = { title: string; url: string; note: string };
+type Used = {
+  title: string;
+  url: string;
+  note: string;
+  file?: string;
+  locator?: string;
+};
 type Run = {
+  kind?: string;
   id: string;
   at: number;
   gap: string;
@@ -88,9 +99,25 @@ export default function ResearchShelf({
     }
   }
   const base = shelf?.roles[role];
+  const stored =
+    shelf?.runs.flatMap((run) => run.sources.filter((s) => s.file)) ?? [];
   return (
     <section className="research-shelf">
       <h2>คลังอ้างอิงของงานนี้</h2>
+      {shelf && (
+        <SourceUpload path={path} roles={shelf.roles} update={setShelf} />
+      )}
+      {stored.length > 0 && (
+        <details>
+          <summary>ไฟล์ที่เก็บไว้ ({stored.length})</summary>
+          {stored.map((s) => (
+            <p key={s.file!.href}>
+              <a href={s.file!.href}>{s.title}</a> ·{" "}
+              {s.kind === "file" ? "ต้นฉบับ" : "บัตรอ้างอิง JSON"}
+            </p>
+          ))}
+        </details>
+      )}
       <form
         onSubmit={(e) =>
           submit(e, { action: "search", role, id: crypto.randomUUID() })
@@ -143,24 +170,32 @@ export default function ResearchShelf({
       {shelf?.runs.map((r, i) => (
         <details key={r.id} open={i === 0 || undefined}>
           <summary>
-            {r.baseline.name} · {r.gap}
+            {r.baseline.name} ·{" "}
+            {r.kind === "upload" ? r.sources[0].title : r.gap}
           </summary>
-          <p>
-            {new Date(r.at).toLocaleString("th-TH")} · Crossref “{r.paper}” ·
-            GitHub “{r.software}”
-          </p>
-          <p>
-            <strong>สมมติฐานตั้งต้นที่ยังต้องตรวจ</strong> · {r.hypothesis}
-            <br />
-            {r.check}
-          </p>
+          {r.kind !== "upload" && (
+            <>
+              <p>
+                {new Date(r.at).toLocaleString("th-TH")} · Crossref “{r.paper}”
+                · GitHub “{r.software}”
+              </p>
+              <p>
+                <strong>สมมติฐานตั้งต้นที่ยังต้องตรวจ</strong> · {r.hypothesis}
+                <br />
+                {r.check}
+              </p>
+            </>
+          )}
           {r.prior?.map((p) => (
             <p key={p.url}>
               หลักฐานเดิมที่นำกลับมาพิจารณา ·{" "}
               <a href={p.url} target="_blank" rel="noreferrer">
                 {p.title}
               </a>{" "}
-              · {p.note}
+              · {p.note} {p.locator}{" "}
+              {p.file && p.file !== p.url && (
+                <a href={p.file}>ดาวน์โหลดบัตรอ้างอิง</a>
+              )}
             </p>
           ))}
           {r.status === "searching" && (
@@ -170,7 +205,7 @@ export default function ResearchShelf({
                 : "กำลังค้นฐานข้อมูล"}
             </p>
           )}
-          {r.unavailable.length > 0 && (
+          {r.unavailable?.length > 0 && (
             <p>
               ติดต่อ {r.unavailable.join(" และ ")} ไม่สำเร็จ ·
               ลองค้นอีกครั้งภายหลัง
@@ -186,7 +221,9 @@ export default function ResearchShelf({
               <small>
                 {s.kind === "paper"
                   ? "บทความ · Crossref"
-                  : "ซอฟต์แวร์ · GitHub"}
+                  : s.kind === "file"
+                    ? "ไฟล์ต้นฉบับ"
+                    : "ซอฟต์แวร์ · GitHub"}
               </small>
               <h3>
                 <a href={s.url} target="_blank" rel="noreferrer">
@@ -194,6 +231,31 @@ export default function ResearchShelf({
                 </a>
               </h3>
               <p>{s.detail}</p>
+              {s.file && (
+                <p>
+                  <a href={s.file.href}>
+                    {s.kind === "file"
+                      ? "ดาวน์โหลดต้นฉบับ"
+                      : "ดาวน์โหลดบัตรอ้างอิง JSON"}
+                  </a>{" "}
+                  · {Math.max(1, Math.ceil(s.file.bytes / 1024))} KiB
+                </p>
+              )}
+              {s.origin && (
+                <a href={s.origin} target="_blank" rel="noreferrer">
+                  แหล่งเผยแพร่ต้นทาง
+                </a>
+              )}
+              {s.excerpt && (
+                <details>
+                  <summary>ข้อความต้นไฟล์</summary>
+                  <pre
+                    style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                  >
+                    {s.excerpt}
+                  </pre>
+                </details>
+              )}
               {s.review && (
                 <p>
                   <b>

@@ -298,7 +298,10 @@ export default function TimedStudies() {
                     <a href={r.url} target="_blank" rel="noreferrer">
                       {r.title}
                     </a>{" "}
-                    · {r.note}
+                    · {r.note} {r.locator}{" "}
+                    {r.file && r.file !== r.url && (
+                      <a href={r.file}>ดาวน์โหลดบัตรอ้างอิง</a>
+                    )}
                   </p>
                 ))}
               </div>
