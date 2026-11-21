@@ -33,24 +33,39 @@ async function getPortalSession(request,env) {
   return {key,etag:obj.etag,data};
 }
 async function finishGoogle(request,env,url) {
-  const clear=baked(flowCookie,"",0), fail=()=>portalRedirect("/login?error=google",[clear]);
-  if(!env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_CLIENT_ID) return fail();
+  const clear=baked(flowCookie,"",0);
+  // Log only fixed reason codes. Provider messages and callback parameters can contain credentials.
+  const fail=(reason,clearFlow=true)=>{
+    console.warn("Google sign-in:",reason);
+    return portalRedirect("/login?error="+reason,clearFlow?[clear]:[]);
+  };
+  if(!env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_CLIENT_ID) return fail("configuration");
   const [state,verifier,issued,sig]=cookieValue(request,flowCookie).split(".");
-  if(!state || !verifier || state!==url.searchParams.get("state") || !/^\d+$/.test(issued||"") ||
-    Date.now()<Number(issued) || Date.now()-Number(issued)>600000 ||
-    !(sig===await flowSignature([state,verifier,issued].join("."),env.GOOGLE_CLIENT_SECRET)) || !url.searchParams.get("code")) return fail();
+  if(!state || !verifier) return fail("flow_cookie",false);
+  if(state!==url.searchParams.get("state")) return fail("flow_state",false);
+  if(!/^\d+$/.test(issued||"") || Date.now()<Number(issued) || Date.now()-Number(issued)>600000) return fail("flow_expired");
+  if(sig!==await flowSignature([state,verifier,issued].join("."),env.GOOGLE_CLIENT_SECRET)) return fail("flow_signature");
+  if(url.searchParams.get("error")==="access_denied") return fail("access_denied");
+  if(!url.searchParams.get("code")) return fail("missing_code");
+  let stage="token_network";
   try {
-    const token=await fetch("https://oauth2.googleapis.com/token",{method:"POST",redirect:"error",signal:AbortSignal.timeout(15000),
+    const token=await fetch("https://oauth2.googleapis.com/token",{method:"POST",redirect:"manual",signal:AbortSignal.timeout(15000),
+      headers:{"content-type":"application/x-www-form-urlencoded"},
       body:new URLSearchParams({grant_type:"authorization_code",code:url.searchParams.get("code"),code_verifier:verifier,
-        client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET,redirect_uri:url.origin+"/api/auth/callback/google"})});
-    if(!token.ok)return fail();
+        client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET,redirect_uri:url.origin+"/api/auth/callback/google"}).toString()});
+    if(!token.ok) {
+      const err=(await token.json().catch(()=>({}))).error;
+      return fail(["invalid_client","invalid_grant","redirect_uri_mismatch"].includes(err)?err:"token_response");
+    }
     const access=(await token.json()).access_token;
-    if(typeof access!=="string" || !access)return fail();
+    if(typeof access!=="string" || !access)return fail("token_response");
     // UserInfo is called directly at Google's endpoint with the access token obtained for this client.
-    const info=await fetch("https://openidconnect.googleapis.com/v1/userinfo",{redirect:"error",signal:AbortSignal.timeout(15000),headers:{authorization:"Bearer "+access}});
-    if(!info.ok)return fail();
+    stage="profile";
+    const info=await fetch("https://openidconnect.googleapis.com/v1/userinfo",{redirect:"manual",signal:AbortSignal.timeout(15000),headers:{authorization:"Bearer "+access}});
+    if(!info.ok)return fail(stage);
     const g=await info.json();
-    if(typeof g.sub!=="string" || !/^[\w-]{1,255}$/.test(g.sub) || g.email_verified!==true || typeof g.email!=="string")return fail();
+    if(typeof g.sub!=="string" || !/^[\w-]{1,255}$/.test(g.sub) || g.email_verified!==true || typeof g.email!=="string")return fail("profile");
+    stage="session_storage";
     const subKey="google/accounts/"+await timedDigest(g.sub);
     let account=await (await env.BUCKET.get(subKey))?.json();
     if(!account) {
@@ -69,7 +84,7 @@ async function finishGoogle(request,env,url) {
     await env.BUCKET.put("google/sessions/"+await timedDigest(sid),JSON.stringify({owner:account.owner,legacyProject:account.legacyProject,
       email:g.email,name:g.name||g.email,project:null,exp:Date.now()+sessionTTL*1000}));
     return portalRedirect("/projects",[baked(sidCookie,sid,sessionTTL),clear]);
-  } catch {return fail();}
+  } catch {return fail(stage);}
 }
 function dropIdentity(request) {
   const h=new Headers(request.headers);

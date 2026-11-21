@@ -4,6 +4,22 @@ import { Input } from "@/components/ui/input";
 import { FolderOpen, Plus } from "lucide-react";
 
 type Project = {id: number; name: string};
+const signInErrors: Record<string,string> = {
+  flow_cookie: "RalphLAB ไม่ได้รับคุกกี้เริ่มเข้าสู่ระบบ เปิดลิงก์ RalphLAB ในแท็บเบราว์เซอร์โดยตรงแล้วกดเข้าสู่ระบบอีกครั้ง",
+  flow_state: "คำขอนี้ไม่ตรงกับรอบที่เริ่มไว้ กรุณาเข้าสู่ระบบอีกครั้งจากแท็บนี้",
+  flow_expired: "คำขอเข้าสู่ระบบหมดอายุ กรุณาเริ่มอีกครั้ง",
+  flow_signature: "ค่าการเข้าสู่ระบบเปลี่ยนไป กรุณาเริ่มอีกครั้ง",
+  access_denied: "Google ยังไม่ได้อนุญาตให้เข้าถึงบัญชี คุณสามารถเลือกบัญชีแล้วลองอีกครั้ง",
+  missing_code: "Google ไม่ได้ส่งรหัสยืนยันกลับมา กรุณาเริ่มเข้าสู่ระบบอีกครั้ง",
+  invalid_grant: "รหัสอนุญาตของ Google หมดอายุหรือใช้ไปแล้ว กรุณาเริ่มเข้าสู่ระบบอีกครั้ง",
+  invalid_client: "Google ไม่ยอมรับข้อมูล OAuth ของแอป ผู้ดูแลต้องตรวจ Client ID และ Client Secret",
+  configuration: "ผู้ดูแลต้องตั้งค่า Google OAuth ของ RalphLAB",
+  redirect_uri_mismatch: "ผู้ดูแลต้องตรวจที่อยู่ callback ใน Google Cloud",
+  token_network: "RalphLAB เชื่อมต่อ Google เพื่อแลกรหัสไม่ได้ กรุณาลองอีกครั้ง",
+  token_response: "Google ปฏิเสธการแลกรหัสอนุญาต กรุณาเริ่มอีกครั้ง",
+  profile: "RalphLAB อ่านบัญชีที่ยืนยันอีเมลจาก Google ไม่สำเร็จ",
+  session_storage: "RalphLAB บันทึกเซสชันไม่ได้ กรุณาลองอีกครั้ง",
+};
 async function portalRequest(path: string, body?: object) {
   const res = await fetch(path, body ? {
     method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
@@ -19,6 +35,7 @@ export default function ProjectPortal({login}: {login: boolean}) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const errorCode = new URLSearchParams(location.search).get("error");
   useEffect(() => {
     if (login) return;
     let alive = true;
@@ -44,7 +61,7 @@ export default function ProjectPortal({login}: {login: boolean}) {
       <img src="/icons/logo-new.png" alt="" width="64" height="64" className="mx-auto mb-4"/>
       <h1 className="text-2xl font-bold">เข้าสู่ระบบ RalphLAB</h1>
       <p className="my-4 text-sm text-muted-foreground">สร้างหรือเลือกโปรเจกต์เพื่อเข้าห้องแล็ปของคุณ</p>
-      {new URLSearchParams(location.search).has("error") && <p role="alert" className="my-3 text-sm text-red-700">Google ยังยืนยันบัญชีไม่สำเร็จ กรุณาลองอีกครั้ง</p>}
+      {errorCode && <p role="alert" className="my-3 text-sm text-red-700">{Object.hasOwn(signInErrors,errorCode) ? signInErrors[errorCode] : "กรุณาเริ่มเข้าสู่ระบบด้วย Google อีกครั้ง"}</p>}
       <Button asChild variant="outline" className="w-full"><a href="/api/auth/google" target="_top">เข้าสู่ระบบด้วย Google</a></Button>
     </section>
   </main>;
