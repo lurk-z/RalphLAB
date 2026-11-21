@@ -13,6 +13,7 @@ import { AgentFace, UserFace } from './DemoConversations'
 import MessageMeta from './MessageMeta'
 import ResearchRequestCard from './ResearchRequestCard'
 import type { AgentDemo } from './useAgentDemo'
+import FormulaProposalCard from './FormulaProposalCard'
 
 const STATUS: Record<HandoffStatus, { label: string; className: string; Icon: typeof CircleCheck }> = {
   sending: { label: 'กำลังส่ง', className: 'text-sky-800 bg-sky-50 ring-sky-200', Icon: LoaderCircle },
@@ -221,6 +222,7 @@ export default function AgentDemoThread({ demo, threadId, job, highlightId, onOp
               onClick={() => void demo.submit(clarification.from, answer, threadId)}>{answer}</button>)}
           </div>}
           {assessment && <AssessmentReply data={assessment} />}
+          {message.kind === 'agent' && message.proposal && <FormulaProposalCard id={`${message.messageId}:0`} proposal={message.proposal} />}
           {task?.workThreadId === threadId && task.steps.length > 0 && <TaskChecklist task={task} elapsed={elapsedLabel(started.get(task.taskId), finished.get(task.taskId))} />}
           {!receipt && <MessageMeta text={assessment ? message.text + '\n' + assessmentText(assessment) : message.text} time={times.get(message.sequence)} />}
         </SenderMessage>

@@ -16,9 +16,10 @@ async def health():
 
 @router.get("/health/ready")
 async def ready():
+    llm_configured = bool(settings.GROQ_API_KEY.strip() or settings.OPENAI_API_KEY.strip())
     checks = {
         "auth_config": "ok" if settings.AUTH_SECRET else "fail: not_configured",
-        "llm_config": "ok" if settings.GROQ_API_KEY else "fail: not_configured",
+        "llm_config": "ok" if llm_configured else "fail: not_configured",
         "db": "unknown",
         "user_schema": "unknown",
         "ingredient_catalogue": "unknown",

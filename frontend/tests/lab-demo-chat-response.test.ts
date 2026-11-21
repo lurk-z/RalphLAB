@@ -4,8 +4,16 @@ import { readChatResponse } from "../src/lib/lab-demo/chat-response.ts";
 
 test("JSON chat replies accept optional public activity and preserve the existing answer-only contract", async () => {
   const steps: string[] = [];
-  assert.equal(await readChatResponse(Response.json({ answer: "เดิม" }), s => steps.push(s)), "เดิม");
-  assert.equal(await readChatResponse(Response.json({ answer: "สรุป", public_steps: ["ตรวจข้อมูลสูตร", null] }), s => steps.push(s)), "สรุป");
+  assert.deepEqual(await readChatResponse(Response.json({ answer: "เดิม" }), s => steps.push(s)), { answer: "เดิม", proposals: [] });
+  const result = await readChatResponse(Response.json({
+    answer: "สรุป", public_steps: ["ตรวจข้อมูลสูตร", null],
+    formula_proposals: [
+      { name: "สูตรเต็ม", items: [{ name: "Water", concentration: 95 }, { name: "Glycerin", concentration: 5 }] },
+      { name: "สูตรไม่ครบ", items: [{ name: "Glycerin", concentration: 5 }] },
+    ],
+  }), s => steps.push(s));
+  assert.equal(result.answer, "สรุป");
+  assert.deepEqual(result.proposals.map(({ name }) => name), ["สูตรเต็ม"]);
   assert.deepEqual(steps, ["ตรวจข้อมูลสูตร"]);
 });
 
@@ -21,7 +29,7 @@ test("public API steps reach the UI before the final answer, including split Tha
   assert.equal(await first.promise, "ตรวจสูตร");
   push.enqueue(encoder.encode('{"type":"final","answer":"สรุปผล"}'));
   push.close();
-  assert.equal(await result, "สรุปผล");
+  assert.deepEqual(await result, { answer: "สรุปผล", proposals: [] });
 });
 
 test("a stream that disconnects before its final answer does not produce a false completion", async () => {
