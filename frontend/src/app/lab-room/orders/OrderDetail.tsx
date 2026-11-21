@@ -84,6 +84,14 @@ export default function OrderDetail({
   return (
     <article className="wo-card">
       <h2>{order.request.brief}</h2>
+      {order.report && <section aria-label="รายงานปิดใบงาน" className="my-3 rounded-xl border bg-muted/40 p-4">
+        <h3>รายงานปิดใบงาน</h3>
+        <p>{states[order.report.decision]} · {order.report.baseline} → {order.report.candidate}</p>
+        <p>เหตุผล · {order.report.note}</p>
+        <p>เปลี่ยน {order.report.changes.length} รายการ · มีหลักฐานอ้างอิงสำหรับ {order.report.citations.length} สาร</p>
+        {order.report.open_questions.map(g=><div key={g}>{g}</div>)}
+        <p className="text-xs text-muted-foreground">ผู้ตัดสินใจ {order.report.actor} · {new Date(order.report.at).toLocaleString("th-TH")}</p>
+      </section>}
       <div className="my-3 flex flex-wrap items-center gap-2">
         <Badge variant={order.state === "approved" ? "default" : order.state === "rejected" ? "destructive" : "muted"}>{states[order.state]}</Badge>
         <span className="select-all break-all font-mono text-xs text-muted-foreground">{order.id}</span>
@@ -105,6 +113,7 @@ export default function OrderDetail({
             </strong>{" "}
             <time>{new Date(e.at).toLocaleString("th-TH")}</time>
             <p>{e.message}</p>
+            {e.application && <p>วิธีที่ใช้กับใบงาน · {e.application}</p>}
             {e.command && (
               <p>
                 {
@@ -127,7 +136,8 @@ export default function OrderDetail({
                 )}
                 {c.evidence?.map((s) => (
                   <div key={s.id}>
-                    หลักฐาน #{s.id} · {s.source} · {s.review}
+                    หลักฐาน #{s.id} · {s.source} · {s.review} {s.reference}
+                    {s.url && /^https?:\/\//i.test(s.url) && <> · <a href={s.url} target="_blank" rel="noreferrer">เปิดต้นฉบับ</a></>}
                   </div>
                 ))}
               </div>

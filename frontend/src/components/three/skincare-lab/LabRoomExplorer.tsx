@@ -127,7 +127,10 @@ export default function LabRoomExplorer({ embedded = false, projectId = null, fo
       <div ref={splitRef} className="lab-chat-split">
         <div className="relative min-h-0 min-w-0 flex-1 select-none overflow-hidden">
           <div className="lab-room-viewport">
-            <Button asChild variant="outline" size="sm" className="absolute right-3 top-3 z-30"><Link href="/lab-room/orders">ใบงาน Agent</Link></Button>
+            <nav className="absolute right-3 top-12 z-30 flex flex-wrap justify-end gap-1 sm:top-3">
+              <Button asChild variant="outline" size="sm"><Link href="/lab-room/protein">โปรตีน 3D</Link></Button>
+              <Button asChild variant="outline" size="sm"><Link href="/lab-room/orders">ใบงาน Agent</Link></Button>
+            </nav>
             <LabRoomCanvas onReady={handleReady} bridge={localPreview ? undefined : bridge} chatOpen={agent !== null} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing} onHandoff={demoChat ? setProgress : undefined} onSample={demoChat ? inspectSample : undefined} />
           </div>
           {demoChat ? progress && (

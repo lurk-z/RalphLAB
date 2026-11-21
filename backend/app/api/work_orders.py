@@ -14,8 +14,11 @@ from app.api.chat import ChatIn, chat
 from app.db.session import get_db
 from app.models.project import Project
 from app.models.work_order import WorkOrder, WorkOrderReader
-from app.schemas.work_order import Input, OrderAction, OrderRequest
-from app.services.work_orders import dispatch, record
+from app.schemas.work_order import Brief, Input, OrderAction, OrderRequest
+from app.services.work_orders import dispatch, final_report, record
+from app.schemas.study import StageResult, StudyBrief
+from app.services.studies import assess, build_plan, stages
+from app.services.protein import INSULIN, MODELS, PROTEIN, ProteinPose, score
 
 router = APIRouter()
 
@@ -50,6 +53,8 @@ def output(row):
         "state": row.state,
         "events": row.events,
         "created_at": row.created_at,
+        "report": final_report(row),
+        **({"stages": stages(row)} if row.request.get("kind") == "study" else {}),
     }
 
 
@@ -103,6 +108,133 @@ def get_order(project_id: int, order_id: UUID, user: CurrentUser = Depends(get_c
     return output(row)
 
 
+@router.post("/projects/{project_id}/briefs")
+def start_brief(project_id: int, body: Brief, user: CurrentUser = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    access(db, user, project_id, write=True)
+    intake = body.model_dump(mode="json")
+    row = db.get(WorkOrder, (project_id, str(body.id)))
+    if row is not None:
+        if row.events[0].get("intake") != intake:
+            raise HTTPException(409, "รหัสนี้ใช้กับโจทย์อื่นแล้ว")
+        return output(row)
+    row = WorkOrder(project_id=project_id, id=str(body.id), state="awaiting_inputs", events=[],
+                    request={"id": str(body.id), "brief": body.brief, "endpoint": body.endpoint})
+    record(row, "head", "director", body.brief, actor=user.id, intake=intake)
+    if body.source == "example":
+        def example(version, water, glycerin):
+            return {"version": version, "ingredients": [{"name": "Aqua", "percent": water},
+                                                      {"name": "Glycerin", "percent": glycerin}]}
+        snapshot = OrderRequest(id=body.id, brief=body.brief, endpoint=body.endpoint, locked=["Glycerin"],
+                                baseline=example("V1", 95, 5), candidate=example("V2-A", 94, 6))
+        row.request = snapshot.model_dump(mode="json")
+        record(row, "director", "head", "ใช้คู่สูตรตัวอย่าง Aqua/Glycerin ตามที่เลือก")
+        dispatch(db, row)
+    else:
+        record(row, "director", "head", "รอสูตรต้นทาง รุ่นที่เสนอ และรายการสารที่ล็อกก่อนส่งใบงาน")
+    db.add(row)
+    db.commit()
+    return output(row)
+
+
+@router.get("/protein/gfp")
+def protein_reference():
+    return PROTEIN
+
+
+@router.get("/protein/insulin")
+def insulin_reference():
+    return INSULIN
+
+
+@router.post("/projects/{project_id}/studies")
+def start_study(project_id: int, body: StudyBrief, user: CurrentUser = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    access(db, user, project_id, write=True)
+    intake = body.model_dump(mode="json")
+    row = db.get(WorkOrder, (project_id, str(body.id)))
+    if row is not None:
+        if row.request.get("kind") != "study" or row.events[0].get("intake") != intake:
+            raise HTTPException(409, "รหัสนี้ใช้กับโจทย์อื่นแล้ว")
+        return output(row)
+    plan = build_plan(body)
+    row = WorkOrder(project_id=project_id, id=str(body.id), state="in_progress", events=[],
+                    request={"kind": "study", "version": "R1", "brief": body.brief,
+                             "discipline": body.discipline, "stages": plan})
+    record(row, "head", "director", body.brief, actor=user.id, intake=intake)
+    record(row, "director", "head", "จัดแผนและเลือกเอกสารอ้างอิงตามประเภทงาน", stage_ids=[s["id"] for s in plan])
+    if body.discipline == "discovery":
+        keywords = [(PROTEIN, ("gfp", "1ema", "green fluorescent protein", "โปรตีนเรืองแสง")),
+                    (INSULIN, ("insulin", "อินซูลิน", "3i40"))]
+        for model, names in keywords:
+            if any(name in body.brief.casefold() for name in names):
+                record(row, "researcher", "head", f"เลือกโครงสร้าง {model['title']} ตามชื่อที่ระบุในโจทย์",
+                       structure={"pdb": model["pdb"], "chain": model["chain"], "url": model["source_url"],
+                                  "observed_positions": len(model["trace"]),
+                                  "application": "ใช้พิกัด Cα ที่ฝากใน PDB เป็นจุดอ้างอิงเปรียบเทียบรูปทรงในแบบฝึก"})
+    db.add(row)
+    db.commit()
+    return output(row)
+
+
+def study_for_update(db, user, project_id, order_id):
+    access(db, user, project_id, write=True)
+    row = db.get(WorkOrder, (project_id, str(order_id)))
+    if row is None or row.request.get("kind") != "study":
+        raise HTTPException(404, "ไม่พบใบงานวิจัย")
+    return row
+
+
+def replay(row, command):
+    for event in row.events:
+        existing = event.get("command")
+        if existing and existing["id"] == command["id"]:
+            if existing != command:
+                raise HTTPException(409, "รหัสคำสั่งซ้ำกับคำขออื่น")
+            return True
+    if command["expected_sequence"] != len(row.events):
+        raise HTTPException(409, "ข้อมูลเปลี่ยนแล้ว โหลดใบงานล่าสุดก่อน")
+    return False
+
+
+@router.post("/projects/{project_id}/orders/{order_id}/stages/{stage_id}/results")
+def stage_result(project_id: int, order_id: UUID, stage_id: str, body: StageResult,
+                 user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = study_for_update(db, user, project_id, order_id)
+    data = body.model_dump(mode="json")
+    command = {"stage": stage_id, **data}
+    if replay(row, command):
+        return output(row)
+    step = next((s for s in stages(row) if s["id"] == stage_id), None)
+    if step is None:
+        raise HTTPException(404, "ไม่พบขั้นงาน")
+    stats = assess(step, body)
+    record(row, step["role"], "head", body.finding, actor=user.id, stage_id=stage_id,
+           command=command, result={k: v for k, v in data.items() if k not in {"id", "expected_sequence"}},
+           source=step["source"], application=step["application"], statistics=stats)
+    if all(s["status"] == "complete" for s in stages(row)):
+        row.state = "awaiting_approval"
+    db.commit()
+    return output(row)
+
+
+@router.post("/projects/{project_id}/orders/{order_id}/protein-poses")
+def save_pose(project_id: int, order_id: UUID, body: ProteinPose, user: CurrentUser = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    row = study_for_update(db, user, project_id, order_id)
+    command = body.model_dump(mode="json")
+    if replay(row, command):
+        return output(row)
+    if row.request["discipline"] != "discovery" or row.state not in {"in_progress", "awaiting_approval"}:
+        raise HTTPException(409, "แนบแบบจำลองได้ในใบงานพัฒนายาที่ยังเปิดอยู่")
+    model = MODELS[body.model]
+    record(row, "researcher", "head", f"แนบแบบฝึกโครงสร้าง {model['title']} สามมิติ", actor=user.id, command=command,
+           pose={"model": body.model, "pdb": model["pdb"], "angles": body.angles, "rmsd": score(body.model, body.angles),
+                 "source_url": model["source_url"], "kind": "educational_model"})
+    db.commit()
+    return output(row)
+
+
 @router.post("/projects/{project_id}/orders")
 def create(
     project_id: int,
@@ -121,6 +253,13 @@ def create(
         dispatch(db, row)
         db.add(row)
         db.commit()
+    elif row.state == "awaiting_inputs":
+        if (row.request["brief"], row.request["endpoint"]) != (body.brief, body.endpoint):
+            raise HTTPException(409, "โจทย์หรือด้านที่ตรวจไม่ตรงกับใบงานเดิม")
+        row.request = snapshot
+        record(row, "head", "director", "แนบคู่สูตรและข้อจำกัดแล้ว", actor=user.id)
+        dispatch(db, row)
+        db.commit()
     elif row.request != snapshot:
         raise HTTPException(409, "รหัสใบงานนี้ใช้กับคำขออื่นแล้ว")
     return output(row)
@@ -138,19 +277,18 @@ def action(
     row = db.get(WorkOrder, (project_id, str(order_id)))
     if row is None:
         raise HTTPException(404, "ไม่พบใบงาน")
+    if row.state == "awaiting_inputs":
+        raise HTTPException(409, "แนบสูตรทั้งสองรุ่นก่อน")
     command = body.model_dump(mode="json")
-    for event in row.events:
-        previous = event.get("command")
-        if previous and previous["id"] == str(body.id):
-            if previous != command:
-                raise HTTPException(409, "รหัสคำสั่งซ้ำกับคำขออื่น")
-            return output(row)
-    if body.version != row.request["candidate"]["version"] or body.expected_sequence != len(row.events):
+    if replay(row, command):
+        return output(row)
+    version = (row.request.get("candidate") or {}).get("version", row.request.get("version"))
+    if body.version != version:
         raise HTTPException(409, "ข้อมูลเปลี่ยนแล้ว โหลดใบงานล่าสุดก่อน")
     if body.action == "recheck" and row.state == "needs_evidence":
         record(row, "head", "director", body.note, actor=user.id, command=command)
         dispatch(db, row)
-    elif body.action == "reject" and row.state in {"awaiting_approval", "needs_evidence"}:
+    elif body.action == "reject" and row.state in {"awaiting_approval", "needs_evidence", "in_progress"}:
         row.state = "rejected"
         record(row, "head", "director", body.note, actor=user.id, command=command)
     elif body.action == "approve" and row.state == "awaiting_approval":
@@ -170,6 +308,7 @@ class Advice(Input):
     id: UUID
     role: Literal["director", "researcher", "formulator", "analyst", "evaluator"]
     expected_sequence: int = Field(ge=1)
+    stage_id: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 @router.post("/projects/{project_id}/orders/{order_id}/advice")
@@ -185,9 +324,12 @@ async def advice(
         row = db.get(WorkOrder, (project_id, str(order_id)), populate_existing=True)
         if row is None:
             raise HTTPException(404, "ไม่พบใบงาน")
+        if row.state == "awaiting_inputs":
+            raise HTTPException(409, "แนบสูตรทั้งสองรุ่นก่อน")
         for event in row.events:
             if event.get("advice_id") == str(body.id):
-                if event["sender"] != body.role or event["source_sequence"] != body.expected_sequence:
+                if (event["sender"] != body.role or event["source_sequence"] != body.expected_sequence
+                        or event.get("reviewed_stage") != body.stage_id):
                     raise HTTPException(409, "รหัสคำขอซ้ำ")
                 return row, True
         if len(row.events) != body.expected_sequence:
@@ -197,18 +339,32 @@ async def advice(
     row, existing = current()
     if existing:
         return output(row)
-    latest = {e["sender"]: e for e in row.events if "tool" in e}
-    handoff = [e for e in latest.values() if body.role in (e["sender"], e["recipient"])]
-    context = json.dumps(
-        {
-            "role": body.role,
-            "brief": row.request["brief"],
-            "version": row.request["candidate"]["version"],
-            "state": row.state,
-            "handoff": handoff,
-        },
-        ensure_ascii=False,
-    )
+    review = {}
+    if row.request.get("kind") == "study":
+        if row.state in {"approved", "rejected"}:
+            raise HTTPException(409, "ใบงานนี้ปิดแล้ว")
+        step = next((s for s in stages(row) if s["id"] == body.stage_id), None)
+        if step is None or step["role"] != body.role:
+            raise HTTPException(422, "เลือกขั้นและบทบาทที่รับผิดชอบขั้นนี้")
+        last = next((e for e in reversed(row.events) if e.get("stage_id") == step["id"] and "result" in e), None)
+        # The model receives this bounded evidence summary, with no apparatus or mutation tools.
+        sources = [step["source"], *(last["result"]["literature"] if last else [])]
+        packet = {"role": body.role, "discipline": row.request["discipline"], "stage": step["title"],
+                  "state": step["status"], "application": step["application"], "sources": sources,
+                  "last_observation": last["result"]["observed_on"] if last else None,
+                  "statistics": last.get("statistics") if last else None}
+        review = {"reviewed_stage": step["id"], "sources_sent": sources}
+        question = ("อธิบายสั้นๆ ว่าแหล่งใดรองรับการจัดขั้นนี้และระบบใช้หลักการนั้นอย่างไร "
+                    "ระบุผลที่มีและข้อมูลที่ยังขาดตามบริบทเท่านั้น ห้ามเสนอวิธีทดลองหรือรับรองผล")
+    else:
+        if body.stage_id:
+            raise HTTPException(422, "ใบงานสูตรไม่มีขั้นวิจัยนี้")
+        latest = {e["sender"]: e for e in row.events if "tool" in e}
+        handoff = [e for e in latest.values() if body.role in (e["sender"], e["recipient"])]
+        packet = {"role": body.role, "brief": row.request["brief"], "version": row.request["candidate"]["version"],
+                  "state": row.state, "handoff": handoff}
+        question = "สรุปใบงานตามบทบาทของคุณจากหลักฐานที่ให้มา บอกข้อจำกัดและสิ่งที่ผู้รับควรตรวจต่อ ห้ามอนุมัติรุ่นสูตร"
+    context = json.dumps(packet, ensure_ascii=False)
     if len(context) > 18000:
         raise HTTPException(422, "ข้อมูลในใบงานนี้เกินขนาดที่ส่งให้โมเดลได้")
     db.rollback()  # Release the project lock while waiting for the provider.
@@ -216,7 +372,7 @@ async def advice(
         ChatIn(
             surface="lab",
             context=context,
-            question="สรุปใบงานตามบทบาทของคุณจากหลักฐานที่ให้มา บอกข้อจำกัดและสิ่งที่ผู้รับควรตรวจต่อ ห้ามอนุมัติรุ่นสูตร",
+            question=question,
         )
     )
     row, existing = current()
@@ -229,6 +385,7 @@ async def advice(
             advice_id=str(body.id),
             source_sequence=body.expected_sequence,
             requested_by=user.id,
+            **review,
         )
         db.commit()
     return output(row)

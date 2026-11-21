@@ -10,6 +10,7 @@ from app.models.ingredient_registry import ExperimentalEvidence, IngredientRegis
 from app.models.work_order import WorkOrder
 from app.schemas.work_order import OrderRequest
 from app.services.ingredient_registry import normalize_ingredient_name
+from app.services.studies import stages
 
 TOOLS = {
     "director": ("Pydantic", "https://docs.pydantic.dev/latest/concepts/models/"),
@@ -17,6 +18,14 @@ TOOLS = {
     "formulator": ("Decimal", "https://docs.python.org/3/library/decimal.html"),
     "analyst": ("RDKit", "https://www.rdkit.org/docs/GettingStartedInPython.html"),
     "evaluator": ("PostgreSQL", "https://www.postgresql.org/docs/current/explicit-locking.html"),
+}
+
+APPLICATIONS = {
+    "director": "ตรวจว่าโจทย์ระบุสูตรสองรุ่นและยอดรวมแต่ละสูตรครบ 100% ก่อนส่งต่อ",
+    "researcher": "จับคู่ชนิดสารกับทะเบียนที่ยืนยันแล้ว และค้นหลักฐานที่ทบทวนแล้วสำหรับด้านที่ระบุ",
+    "formulator": "เทียบสัดส่วนทีละสารด้วยเลขฐานสิบ และทำเครื่องหมายรายการที่ล็อกไว้",
+    "analyst": "อ่านโครงสร้างจาก SMILES ในทะเบียนเพื่อตรวจว่าแปลข้อมูลโครงสร้างได้",
+    "evaluator": "ใช้รายการหลักฐานที่ขาดเพื่อตัดสินว่าพร้อมส่งให้เจ้าของโครงการทบทวนหรือยัง",
 }
 
 
@@ -29,11 +38,36 @@ def record(order, sender, recipient, message, **details):
         at=datetime.now(timezone.utc).isoformat(),
         sender=sender,
         recipient=recipient,
-        version=order.request["candidate"]["version"],
+        version=(order.request.get("candidate") or {}).get("version", order.request.get("version")),
         message=message,
+        **({"application": APPLICATIONS[sender]} if "tool" in details else {}),
         **details,
     )
     order.events = [*order.events, event]
+
+
+def final_report(row):
+    if row.state not in {"approved", "rejected"}:
+        return None
+    decision = next(e for e in reversed(row.events) if e.get("command", {}).get("action") in {"approve", "reject"})
+    if row.request.get("kind") == "study":
+        steps = stages(row)
+        return {
+            "order_id": row.id, "brief": row.request["brief"], "decision": row.state,
+            "actor": decision["actor"], "at": decision["at"], "note": decision["message"],
+            "steps": steps,
+            "records": [e for e in row.events[:decision["sequence"]]
+                        if any(key in e for key in ("result", "pose", "structure", "reviewed_stage"))],
+            "open_questions": [step["title"] for step in steps if step["status"] != "complete"],
+        }
+    roles = {e["sender"]: e for e in row.events[:decision["sequence"]] if "tool" in e}
+    return {
+        "order_id": row.id, "brief": row.request["brief"], "endpoint": row.request["endpoint"],
+        "baseline": row.request["baseline"]["version"], "candidate": row.request["candidate"]["version"],
+        "decision": row.state, "actor": decision["actor"], "at": decision["at"], "note": decision["message"],
+        "changes": roles["formulator"]["changes"], "citations": roles["researcher"]["citations"],
+        "open_questions": roles["evaluator"]["gaps"],
+    }
 
 
 def dispatch(db: Session, order: WorkOrder):

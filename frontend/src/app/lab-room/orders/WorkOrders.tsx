@@ -9,7 +9,9 @@ import { useEffect, useState } from "react";
 import { api, http, apiErrorMessage } from "@/lib/api";
 import NewOrder from "./NewOrder";
 import OrderDetail from "./OrderDetail";
-import { states, type Project, type Order } from "./types";
+import StartBrief from "./StartBrief";
+import StudyDetail from "./StudyDetail";
+import { hasVersions, isStudy, states, type Project, type Case } from "./types";
 
 function Readers({ project }: { project: number }) {
   const path = `/api/lab/projects/${project}/readers`;
@@ -77,7 +79,7 @@ function Readers({ project }: { project: number }) {
 }
 
 function Inbox({ project }: { project: Project }) {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Case[]>([]);
   const [selected, setSelected] = useState("");
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
@@ -85,7 +87,7 @@ function Inbox({ project }: { project: Project }) {
   useEffect(() => {
     const ctrl = new AbortController();
     setError("");
-    http<Order[]>(`/api/lab/projects/${project.id}/orders`, {
+    http<Case[]>(`/api/lab/projects/${project.id}/orders`, {
       signal: ctrl.signal,
     })
       .then((rows) => {
@@ -102,7 +104,7 @@ function Inbox({ project }: { project: Project }) {
       });
     return () => ctrl.abort();
   }, [project.id, reload]);
-  function saved(o: Order) {
+  function saved(o: Case) {
     setOrders((os) => [o, ...os.filter((x) => x.id !== o.id)]);
     setSelected(o.id);
     setComposing(false);
@@ -111,6 +113,7 @@ function Inbox({ project }: { project: Project }) {
   const active = orders.find((o) => o.id === selected);
   return (
     <>
+      {project.owner && <StartBrief project={project.id} onSave={saved} />}
       <div className="wo-actions">
         {project.owner && (
           <Button
@@ -141,7 +144,12 @@ function Inbox({ project }: { project: Project }) {
       ) : (
         <p>โครงการนี้ยังไม่มีใบงาน</p>
       )}
-      {active && (
+      {active && isStudy(active) && <StudyDetail key={active.id} study={active} owner={project.owner} onSave={saved} />}
+      {active && !isStudy(active) && !hasVersions(active) && <div className="my-4">
+        <strong>{states[active.state]}</strong><p>{active.events.at(-1)?.message}</p>
+        {project.owner && <NewOrder key={active.id} project={project.id} intake={active} onSave={saved}/>}
+      </div>}
+      {active && hasVersions(active) && (
         <OrderDetail
           key={active.id}
           order={active}
@@ -199,7 +207,7 @@ export default function WorkOrders({
   }
   return (
     <main className="wo">
-      <Link href="/lab-room">← ห้องแล็บ 3D</Link>
+      <nav className="flex flex-wrap gap-5"><Link href="/lab-room">← ห้องแล็บ 3D</Link><Link href="/lab-room/protein">โต๊ะโปรตีน 3D</Link></nav>
       <PageHeader title="ใบงาน Agent" className="my-5" />
       {signedIn ? (
         <>

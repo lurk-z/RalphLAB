@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { useState, useRef } from "react";
 import { http, apiErrorMessage } from "@/lib/api";
 import { loadProjectWorkspace } from "@/lib/project-workspace";
-import type { Order, Revision } from "./types";
+import type { Order, PendingOrder, Revision } from "./types";
 
 function parseRows(text: string): Revision["ingredients"] {
   return text
@@ -23,18 +23,20 @@ function parseRows(text: string): Revision["ingredients"] {
 export default function NewOrder({
   project,
   onSave,
+  intake,
 }: {
   project: number;
+  intake?: PendingOrder;
   onSave: (order: Order) => void;
 }) {
   const [drafts] = useState(
     () => loadProjectWorkspace(project)?.formulas ?? [],
   );
-  const [brief, setBrief] = useState("");
+  const [brief, setBrief] = useState(intake?.request.brief ?? "");
   const [versions, setVersions] = useState(["V1", "V2-A"]);
   const [lines, setLines] = useState(["", ""]);
   const [locked, setLocked] = useState("");
-  const [endpoint, setEndpoint] = useState("identity");
+  const [endpoint, setEndpoint] = useState(intake?.request.endpoint ?? "identity");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const last = useRef({ key: "", id: "" });
@@ -66,7 +68,7 @@ export default function NewOrder({
         last.current = { key, id: crypto.randomUUID() };
       const order = await http<Order>(`/api/lab/projects/${project}/orders`, {
         method: "POST",
-        body: JSON.stringify({ ...data, id: last.current.id }),
+        body: JSON.stringify({ ...data, id: intake?.id ?? last.current.id }),
       });
       onSave(order);
     } catch (e) {
@@ -81,24 +83,25 @@ export default function NewOrder({
   }
   return (
     <form className="wo-card" onSubmit={send}>
-      <h2>ส่งใบงานใหม่</h2>
+      <h2>{intake ? "แนบสูตรให้โจทย์เดิม" : "ส่งใบงานใหม่"}</h2>
       <label>
         โจทย์ของหัวหน้าโครงการ
         <Input
           required
           maxLength={1500}
           value={brief}
+          readOnly={Boolean(intake)}
           onChange={(e) => setBrief(e.target.value)}
         />
       </label>
       <Button variant="outline"
         type="button"
         onClick={() => {
-          setBrief("ตรวจชนิดสารและทบทวนการเปลี่ยนสัดส่วน");
+          if (!intake) setBrief("ตรวจชนิดสารและทบทวนการเปลี่ยนสัดส่วน");
           setLines(["Aqua, 95\nGlycerin, 5", "Aqua, 94\nGlycerin, 6"]);
           setVersions(["V1", "V2-A"]);
           setLocked("Glycerin");
-          setEndpoint("identity");
+          if (!intake) setEndpoint("identity");
         }}
       >
         ใช้ตัวอย่าง Aqua และ Glycerin
@@ -170,7 +173,7 @@ export default function NewOrder({
       </label>
       <label>
         หลักฐานที่ต้องตรวจ
-        <select value={endpoint} onChange={(e) => setEndpoint(e.target.value)}>
+        <select value={endpoint} disabled={Boolean(intake)} onChange={(e) => setEndpoint(e.target.value)}>
           {Object.entries({
             identity: "ชนิดสาร",
             skin: "ข้อมูลด้านผิวหนัง",

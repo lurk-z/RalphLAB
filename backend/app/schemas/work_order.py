@@ -13,6 +13,13 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class Brief(Input):
+    id: UUID
+    brief: Note
+    source: Literal["attach", "example"] = "attach"
+    endpoint: Endpoint = "identity"
+
+
 class Ingredient(Input):
     name: Label
     percent: Decimal = Field(gt=0, le=100, max_digits=9, decimal_places=6)
