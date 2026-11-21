@@ -18,7 +18,7 @@ from app.schemas.work_order import Brief, Input, OrderAction, OrderRequest
 from app.services.work_orders import dispatch, final_report, record
 from app.schemas.study import StageResult, StudyBrief
 from app.services.studies import assess, build_plan, stages
-from app.services.protein import INSULIN, MODELS, PROTEIN, ProteinPose, score
+from app.services.protein import INSULIN, MODELS, PROTEIN, ProteinPose, ProteinRun, alignment_frames, score
 
 router = APIRouter()
 
@@ -218,6 +218,36 @@ def stage_result(project_id: int, order_id: UUID, stage_id: str, body: StageResu
     return output(row)
 
 
+def require_open_protein_study(row):
+    if row.request["discipline"] != "discovery" or row.state not in {"in_progress", "awaiting_approval"}:
+        raise HTTPException(409, "ใช้โต๊ะโปรตีนได้ในใบงานพัฒนายาที่ยังเปิดอยู่")
+
+
+@router.post("/projects/{project_id}/orders/{order_id}/protein-runs")
+def run_protein_alignment(project_id: int, order_id: UUID, body: ProteinRun,
+                          user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = study_for_update(db, user, project_id, order_id)
+    command = body.model_dump(mode="json")
+    if replay(row, command):
+        return output(row)
+    require_open_protein_study(row)
+    previous = None
+    if body.start_from == "latest":
+        previous = next((e for e in reversed(row.events) if e.get("pose", {}).get("model") == body.model), None)
+    angles = previous["pose"]["angles"] if previous else MODELS[body.model]["start_angles"]
+    for phase, sender, recipient, message, geometry in alignment_frames(body.model, angles):
+        frame = {"run_id": str(body.id), "phase": phase, **geometry}
+        details = {}
+        if phase == "inspect":
+            details.update(command=command, requested_by=user.id)
+            frame["input_pose_event_id"] = previous["id"] if previous else None
+        if phase == "verify":
+            details.update(actor=sender, pose={"kind": "educational_model", **geometry})
+        record(row, sender, recipient, message, protein_step=frame, **details)
+    db.commit()
+    return output(row)
+
+
 @router.post("/projects/{project_id}/orders/{order_id}/protein-poses")
 def save_pose(project_id: int, order_id: UUID, body: ProteinPose, user: CurrentUser = Depends(get_current_user),
               db: Session = Depends(get_db)):
@@ -225,8 +255,7 @@ def save_pose(project_id: int, order_id: UUID, body: ProteinPose, user: CurrentU
     command = body.model_dump(mode="json")
     if replay(row, command):
         return output(row)
-    if row.request["discipline"] != "discovery" or row.state not in {"in_progress", "awaiting_approval"}:
-        raise HTTPException(409, "แนบแบบจำลองได้ในใบงานพัฒนายาที่ยังเปิดอยู่")
+    require_open_protein_study(row)
     model = MODELS[body.model]
     record(row, "researcher", "head", f"แนบแบบฝึกโครงสร้าง {model['title']} สามมิติ", actor=user.id, command=command,
            pose={"model": body.model, "pdb": model["pdb"], "angles": body.angles, "rmsd": score(body.model, body.angles),

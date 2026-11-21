@@ -1,4 +1,4 @@
-"""Reference-frame geometry exercise using deposited GFP alpha-carbon coordinates."""
+"""Reference-frame geometry exercises using deposited alpha-carbon coordinates."""
 
 import json
 from math import radians, cos, sin
@@ -11,13 +11,24 @@ from pydantic import Field
 from app.schemas.work_order import Input
 
 
+ModelId = Literal["1EMA-A-17-28-v1", "3I40-AB-v1"]
+
+
 class ProteinPose(Input):
     id: UUID
     expected_sequence: int = Field(ge=1)
-    model: Literal["1EMA-A-17-28-v1", "3I40-AB-v1"]
+    model: ModelId
     angles: tuple[
         Annotated[int, Field(ge=-180, le=180)], Annotated[int, Field(ge=-180, le=180)]
     ]
+
+
+class ProteinRun(Input):
+    id: UUID
+    expected_sequence: int = Field(ge=1)
+    model: ModelId
+    task: Literal["align_reference"] = "align_reference"
+    start_from: Literal["latest", "exercise"] = "latest"
 
 
 TRACE = json.loads(Path(__file__).with_name("gfp_1ema.json").read_text(encoding="utf8"))
@@ -85,3 +96,52 @@ def score(model, angles):
         moved = pose[index + 1 :] - pivot
         pose[index + 1 :] = pivot + rotate(moved, axis, degrees)
     return round(float(np.sqrt(np.mean(np.sum((pose - original) ** 2, axis=1)))), 3)
+
+
+def alignment_frames(model, initial):
+    """Restore the two known viewer rotations and measure the reference-frame RMSD."""
+    first, second = initial
+    # At large angles undoing a single joint can make the trace temporarily
+    # farther away. Choose a measured intermediate and keep the input on a tie.
+    candidates = [
+        initial,
+        (round(first / 2), round(second / 2)),
+        (0, second),
+        (first, 0),
+    ]
+    intermediate = min(candidates, key=lambda angles: score(model, angles))
+    aligned = (0, 0)
+    steps = [
+        (
+            "inspect",
+            "researcher",
+            "formulator",
+            "อ่านพิกัดอ้างอิงและวัดระยะคลาดของท่าตั้งต้น",
+            initial,
+        ),
+        (
+            "adjust",
+            "formulator",
+            "formulator",
+            "เปรียบเทียบการหมุนสองแกนและเลือกท่าระหว่างทางจากค่า RMSD",
+            intermediate,
+        ),
+        ("align", "formulator", "analyst", "คืนมุมของแบบฝึกให้ตรงกับกรอบพิกัดอ้างอิง", aligned),
+        (
+            "verify",
+            "analyst",
+            "head",
+            "คำนวณ RMSD ของท่าสุดท้ายและบันทึกผลเทียบพิกัด PDB",
+            aligned,
+        ),
+    ]
+    data = MODELS[model]
+    for phase, sender, recipient, message, angles in steps:
+        geometry = dict(
+            model=model,
+            pdb=data["pdb"],
+            angles=list(angles),
+            rmsd=score(model, angles),
+            source_url=data["source_url"],
+        )
+        yield phase, sender, recipient, message, geometry

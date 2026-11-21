@@ -78,9 +78,9 @@ function Readers({ project }: { project: number }) {
   );
 }
 
-function Inbox({ project }: { project: Project }) {
+function Inbox({ project, initialOrder }: { project: Project; initialOrder:string }) {
   const [orders, setOrders] = useState<Case[]>([]);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(initialOrder);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const [composing, setComposing] = useState(false);
@@ -165,9 +165,13 @@ function Inbox({ project }: { project: Project }) {
 export default function WorkOrders({
   signedIn,
   localDemo,
+  initialProject=0,
+  initialOrder="",
 }: {
   signedIn: boolean;
   localDemo: boolean;
+  initialProject?:number;
+  initialOrder?:string;
 }) {
   const session = useSession();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -181,14 +185,14 @@ export default function WorkOrders({
     http<Project[]>("/api/lab/projects", { signal: ctrl.signal })
       .then((rows) => {
         setProjects(rows);
-        setId(rows[0]?.id ?? 0);
+        setId(rows.some(p=>p.id===initialProject) ? initialProject : rows[0]?.id ?? 0);
       })
       .catch((e) => {
         if (!ctrl.signal.aborted)
           setError(apiErrorMessage(e, "โหลดโครงการไม่ได้"));
       });
     return () => ctrl.abort();
-  }, [signedIn]);
+  }, [signedIn, initialProject]);
   const current = projects.find((p) => p.id === id);
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -240,7 +244,7 @@ export default function WorkOrders({
               <Button variant="outline" disabled={busy || !name.trim()}>สร้างโครงการ</Button>
             </form>
           </Card>
-          {current && <Inbox key={current.id} project={current} />}
+          {current && <Inbox key={current.id} project={current} initialOrder={id===initialProject ? initialOrder : ""} />}
         </>
       ) : (
         <Card className="my-4 p-5">

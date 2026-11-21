@@ -89,6 +89,15 @@ export type Step = {
   status: string;
 };
 export type StudyEvent = Omit<Event, "command"> & {
+  protein_step?: {
+    run_id: string;
+    phase: "inspect" | "adjust" | "align" | "verify";
+    model: string;
+    pdb: string;
+    angles: number[];
+    rmsd: number;
+    source_url: string;
+  };
   reviewed_stage?: string;
   sources_sent?: { title: string; url: string; locator: string }[];
   stage_id?: string;

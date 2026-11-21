@@ -129,8 +129,8 @@ export class Agent {
     return this.actions.get(clip)?.getClip().duration ?? 0
   }
 
-  private check() {
-    if (this.signal.cancelled) throw new Cancelled()
+  private check(owner = this.signal) {
+    if (owner !== this.signal || owner.cancelled) throw new Cancelled()
   }
 
   /** Cross-fade to a clip. `once` clips hold their last frame and resolve when they end. */
@@ -182,13 +182,15 @@ export class Agent {
 
   /** Walk to a spot along the nav grid, then turn to the spot's facing. */
   async walkTo(spot: Spot) {
-    this.check()
+    const owner = this.signal
+    this.check(owner)
     const path = this.nav.findPath(this.pos, spot.pos)
     this.play(this.walkClip())
     await new Promise<void>((done) => this.setTask({ kind: 'walk', path, done }))
-    this.check()
+    this.check(owner)
     this.play(this.idleClip())
     await this.turnTo(spot.yaw)
+    this.check(owner)
   }
 
   /**
@@ -196,7 +198,8 @@ export class Agent {
    * e.g. `{ grab: attach, release: detach }`. Resolves when the clip ends; the agent then idles.
    */
   async perform(clip: Clip, eventTimes: Record<string, number>, on: Record<string, () => void> = {}, fade = 0.25) {
-    this.check()
+    const owner = this.signal
+    this.check(owner)
     const action = this.actions.get(clip)
     if (!action) throw new Error(`clip ${clip} missing on ${this.cfg.role}`)
     const list = Object.entries(on)
@@ -206,6 +209,7 @@ export class Agent {
     const finished = this.play(clip, { once: true, fade })
     this.events = { action, list }
     await finished
+    this.check(owner)
     // a clip that ended before an event (very short frames) still fires it, in order
     for (const e of list) if (!e.done) {
       e.done = true
@@ -230,7 +234,8 @@ export class Agent {
   }
 
   async standUp() {
-    this.check()
+    const owner = this.signal
+    this.check(owner)
     if (!this.seated) return
     const a = this.actions.get('Stand_Up')
     if (this.cfg.chair && a) {
@@ -238,18 +243,21 @@ export class Agent {
       this.chairMove = { from: this.cfg.chair.seated, to: this.cfg.chair.standing, t0, t1, action: a }
     }
     await this.play('Stand_Up', { once: true, fade: 0.2 })
+    this.check(owner)
     this.seated = false
     this.play('Idle_Stand', { fade: 0.25 })
   }
 
   async sitDown() {
-    this.check()
+    const owner = this.signal
+    this.check(owner)
     const a = this.actions.get('Sit_Down')
     if (this.cfg.chair && a) {
       const [t0, t1] = this.chairTiming.sitDown
       this.chairMove = { from: this.cfg.chair.standing, to: this.cfg.chair.seated, t0, t1, action: a }
     }
     await this.play('Sit_Down', { once: true, fade: 0.25 })
+    this.check(owner)
     this.seated = true
     this.play('Seated_Work', { fade: 0.1 })
   }
@@ -348,6 +356,16 @@ export class Agent {
   clearTask() {
     this.task = null
     this.events = null
+    // A replacement director may claim this actor halfway through standing or sitting.
+    // Leave the chair at its last completed pose and detach old one-shot continuations.
+    this.onceDone.clear()
+    const interruptedSeat = this.current === this.actions.get('Sit_Down') || this.current === this.actions.get('Stand_Up')
+    if (this.cfg.chair && (this.chairMove || interruptedSeat)) {
+      this.chairMove = null
+      this.cfg.chair.node.position.copy(this.seated ? this.cfg.chair.seated : this.cfg.chair.standing)
+      this.play(this.seated ? 'Seated_Work' : this.idleClip(), { fade: 0.15 })
+      this.onSceneChange()
+    }
   }
 }
 

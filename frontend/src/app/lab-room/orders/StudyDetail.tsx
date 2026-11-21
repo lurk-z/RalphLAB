@@ -255,6 +255,9 @@ export default function StudyDetail({
   return (
     <article className="wo-card break-words">
       <h2>{study.request.brief}</h2>
+      {study.request.discipline === "discovery" && (
+        <Button asChild className="my-2"><Link href={`/lab-room?project=${study.project_id}&order=${study.id}`}>วางงานบนโต๊ะ 3D</Link></Button>
+      )}
       <p>
         {disciplines[study.request.discipline]} ·{" "}
         <Badge>{states[study.state]}</Badge>

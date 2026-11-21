@@ -283,3 +283,92 @@ def test_insulin_brief_uses_matching_structure_and_saves_reference_frame(lab):
     ).json()
     assert len(closed["report"]["open_questions"]) == 3
     assert closed["report"]["records"][0]["structure"] == hit
+
+
+@pytest.mark.parametrize("slug", ["insulin", "gfp"])
+def test_protein_table_runs_persist_scoped_reproducible_frames(lab, slug):
+    client, identity = lab
+    model = client.get("/api/lab/protein/" + slug).json()
+    row = start(client, "discovery")
+    path = BASE + "/" + row["id"]
+    url = path + "/protein-runs"
+
+    def run(row, **changes):
+        return {
+            "id": str(uuid4()),
+            "expected_sequence": len(row["events"]),
+            "model": model["model"],
+            **changes,
+        }
+
+    # A saved pose for the other version must never become the input geometry.
+    other = "3I40-AB-v1" if slug == "gfp" else "1EMA-A-17-28-v1"
+    row = client.post(
+        path + "/protein-poses", json=run(row, model=other, angles=[0, 0])
+    ).json()
+    first = run(row)
+    saved = client.post(url, json=first).json()
+    assert client.get(path).json() == client.post(url, json=first).json() == saved
+    assert saved["state"] == row["state"] and saved["stages"] == row["stages"]
+    new_events = saved["events"][len(row["events"]) :]
+    assert [e["sender"] for e in new_events] == [
+        "researcher",
+        "formulator",
+        "formulator",
+        "analyst",
+    ]
+    frames = [e["protein_step"] for e in new_events]
+    assert [f["phase"] for f in frames] == ["inspect", "adjust", "align", "verify"]
+    assert all(
+        f["run_id"] == first["id"]
+        and f["model"] == model["model"]
+        and f["source_url"] == model["source_url"]
+        for f in frames
+    )
+    assert (
+        frames[0]["angles"] == model["start_angles"]
+        and frames[0]["input_pose_event_id"] is None
+    )
+    assert (
+        frames[0]["rmsd"]
+        > frames[1]["rmsd"]
+        > frames[2]["rmsd"]
+        == frames[3]["rmsd"]
+        == 0
+    )
+    assert new_events[-1]["pose"]["angles"] == [0, 0]
+    assert client.post(url, json={**first, "start_from": "exercise"}).status_code == 409
+    assert client.post(url, json=run(row)).status_code == 409
+    assert client.post(url, json=run(saved, task="unrecognized")).status_code == 422
+
+    custom = client.post(
+        path + "/protein-poses", json=run(saved, angles=[-71, 119])
+    ).json()
+    assert client.post(url, json=first).json() == custom
+    continued = client.post(url, json=run(custom)).json()
+    origin = continued["events"][-4]["protein_step"]
+    assert origin["input_pose_event_id"] == custom["events"][-1]["id"] and origin[
+        "angles"
+    ] == [-71, 119]
+    reset = client.post(url, json=run(continued, start_from="exercise")).json()
+    assert reset["events"][-4]["protein_step"]["angles"] == model["start_angles"]
+    assert reset["events"][-4]["protein_step"]["input_pose_event_id"] is None
+    closed = client.post(path + "/actions", json=decision(reset, "reject")).json()
+    assert len([e for e in closed["report"]["records"] if "protein_step" in e]) == 12
+    assert client.post(url, json=first).json() == closed
+    assert client.post(url, json=run(closed)).status_code == 409
+    another = start(client, "trace")
+    assert (
+        client.post(
+            BASE + "/" + another["id"] + "/protein-runs", json=run(another)
+        ).status_code
+        == 409
+    )
+
+    email = "team@example.com"
+    client.put("/api/lab/projects/1/readers", json={"email": email})
+    identity[0] = CurrentUser("reader", email, email)
+    assert client.get(path).json() == closed
+    assert client.post(url, json=first).status_code == 403
+    identity[0] = CurrentUser("other")
+    assert client.post(url, json=first).status_code == 404

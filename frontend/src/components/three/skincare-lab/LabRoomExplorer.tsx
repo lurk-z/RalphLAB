@@ -14,6 +14,9 @@ import LabAgentChat from './chat/LabAgentChat'
 import { useLabAgentChat, type ChatFormula } from './chat/useLabAgentChat'
 import { useAgentDemo } from './chat/useAgentDemo'
 import type { DemoScreen } from '@/lib/lab-demo/conversations'
+import { DeskLauncher, ProteinDeskPanel } from './proteinDesk/ProteinDeskPanel'
+import DeskAgentActivity from './proteinDesk/DeskAgentActivity'
+import { useProteinDesk, type DeskBinding } from './proteinDesk/useProteinDesk'
 
 // WebGL scene — client-only.
 const LabRoomCanvas = dynamic(() => import('./LabRoomCanvas'), { ssr: false })
@@ -27,12 +30,20 @@ const CHAT_MIN_WIDTH = 290
 const CHAT_MAX_WIDTH = 560
 const MIN_ROOM_WIDTH = 365
 
-export default function LabRoomExplorer({ embedded = false, projectId = null, formula, localPreview = false }: {
+export default function LabRoomExplorer({ embedded = false, projectId = null, formula, localPreview = false,
+  desk = null, deskLauncher = false, deskSignedIn = false, deskLocalLogin = false }: {
   embedded?: boolean
   localPreview?: boolean
   projectId?: number | null
   formula?: ChatFormula
+  desk?: DeskBinding | null
+  deskLauncher?: boolean
+  deskSignedIn?: boolean
+  deskLocalLogin?: boolean
 } = {}) {
+  const protein = useProteinDesk(desk, deskSignedIn)
+  const atDesk = Boolean(desk || deskLauncher)
+  const deskStudy = desk && deskSignedIn ? protein.state.study : null
   const [ready, setReady] = useState(false)
   const [agent, setAgent] = useState<Role | null>(null)
   const [cameraAgent, setCameraAgent] = useState<Role | null>(null)
@@ -127,13 +138,19 @@ export default function LabRoomExplorer({ embedded = false, projectId = null, fo
       <div ref={splitRef} className="lab-chat-split">
         <div className="relative min-h-0 min-w-0 flex-1 select-none overflow-hidden">
           <div className="lab-room-viewport">
-            <nav className="absolute right-3 top-12 z-30 flex flex-wrap justify-end gap-1 sm:top-3">
+            <nav className="absolute right-3 top-12 z-30 flex max-w-[calc(100%_-_1.5rem)] flex-wrap justify-end gap-1 sm:top-3">
+              {!atDesk && <Button asChild variant="outline" size="sm"><Link href="/lab-room?table=protein">งานโปรตีนบนโต๊ะ</Link></Button>}
               <Button asChild variant="outline" size="sm"><Link href="/lab-room/protein">โปรตีน 3D</Link></Button>
               <Button asChild variant="outline" size="sm"><Link href="/lab-room/orders">ใบงาน Agent</Link></Button>
             </nav>
-            <LabRoomCanvas onReady={handleReady} bridge={localPreview ? undefined : bridge} chatOpen={agent !== null} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing} onHandoff={demoChat ? setProgress : undefined} onSample={demoChat ? inspectSample : undefined} />
+            <LabRoomCanvas onReady={handleReady} bridge={localPreview || atDesk ? undefined : bridge}
+              chatOpen={agent !== null} cameraAgent={cameraAgent} onAgentSelect={selectAgent} onStopFollowing={stopFollowing}
+              onHandoff={demoChat && !atDesk ? setProgress : undefined} onSample={demoChat && !atDesk ? inspectSample : undefined}
+              proteinTable={protein.table} proteinWork={protein.work} onProteinPhase={protein.phase} />
           </div>
-          {demoChat ? progress && (
+          {desk && deskSignedIn ? <ProteinDeskPanel binding={desk} desk={protein} /> : atDesk ?
+            <DeskLauncher signedIn={deskSignedIn} localLogin={deskLocalLogin}
+              callbackUrl={desk ? `/lab-room?project=${desk.project}&order=${desk.order}` : undefined}/> : demoChat ? progress && (
             <button type="button" onClick={() => selectAgent(HANDOFFS[progress.index].from)} className="absolute bottom-3 left-3 z-20 max-w-[calc(100%-1.5rem)] rounded-xl bg-white/95 px-3 py-2 text-left text-xs shadow-sm">
               <span className="block text-teal-700">โครงการจำลอง D01 · {progress.index + 1}/{HANDOFFS.length}</span>
               {HANDOFFS[progress.index].title} · {progress.delivered ? 'ส่งถึงแล้ว' : 'กำลังส่ง'}
@@ -142,13 +159,13 @@ export default function LabRoomExplorer({ embedded = false, projectId = null, fo
           {!ready && <div className="absolute inset-0 grid place-items-center bg-[#c9d5df] text-sm text-slate-500">กำลังโหลดห้องแล็บ</div>}
           {(ready || agentDemoOn || localPreview) && (
             <div className="absolute left-3 top-3 z-[21] flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1.5 text-xs shadow-sm ring-1 ring-slate-200">
-              {agentDemoOn ? <button type="button" aria-label="เปิดรายการแชต" title="เปิดรายการแชต" className="flex items-center gap-1 rounded-full px-1 py-1 text-teal-800 hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-600" onClick={() => {
+              {agentDemoOn && !deskStudy ? <button type="button" aria-label="เปิดรายการแชต" title="เปิดรายการแชต" className="flex items-center gap-1 rounded-full px-1 py-1 text-teal-800 hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-600" onClick={() => {
                 setAgent((value) => value ?? 'director')
                 setCameraAgent(null)
                 setDemoScreen({ kind: 'inbox' })
               }}><MessageCircle aria-hidden="true" className="size-3.5" />แชต</button> : <MessageCircle aria-hidden="true" className="size-3.5 text-teal-700" />}
-              <select aria-label="เลือก Agent สำหรับแชต" value={agentDemoOn && demoScreen.kind !== 'private' ? '' : agent ?? ''} onChange={(event) => selectAgent((event.target.value || null) as Role | null)} className="max-w-[140px] bg-transparent py-0.5 text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-teal-600">
-                <option value="">แชตกับ Agent</option>
+              <select aria-label={deskStudy ? "ดูงานของ Agent" : "เลือก Agent สำหรับแชต"} value={!deskStudy && agentDemoOn && demoScreen.kind !== 'private' ? '' : agent ?? ''} onChange={(event) => selectAgent((event.target.value || null) as Role | null)} className="max-w-[140px] bg-transparent py-0.5 text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-teal-600">
+                <option value="">{deskStudy ? "ดูงานของ Agent" : "แชตกับ Agent"}</option>
                 {(Object.keys(ROLE_LABEL) as Role[]).map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
               </select>
             </div>
@@ -189,10 +206,10 @@ export default function LabRoomExplorer({ embedded = false, projectId = null, fo
                 commitWidth(Math.max(CHAT_MIN_WIDTH, Math.min(maxChatWidth(), width + direction * 24)))
               }}
             />
-            <LabAgentChat key={`${projectId ?? 'standalone'}:${agent}:${agentDemoOn ? agentDemo.userId : 'chat'}:${demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId ?? 'private' : 'inbox'}`}
+            {deskStudy ? <DeskAgentActivity study={deskStudy} role={agent} onClose={() => selectAgent(null)}/> : <LabAgentChat key={`${projectId ?? 'standalone'}:${agent}:${agentDemoOn ? agentDemo.userId : 'chat'}:${demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId ?? 'private' : 'inbox'}`}
               agent={agent} formula={demoChat || agentDemoOn ? undefined : formula} chat={chat} onSelectAgent={selectAgent} onClose={() => selectAgent(null)} progress={demoChat ? progress : undefined}
               onModeChange={chooseChatMode}
-              sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen} />
+              sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen} />}
           </div>
         )}
       </div>
