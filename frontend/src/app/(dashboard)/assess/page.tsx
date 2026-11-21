@@ -95,6 +95,7 @@ import {
   resolveManualSubstanceRegistryMatch,
   searchManualSubstanceSuggestions,
 } from "@/lib/manual-substance";
+import { chatAssessment } from "@/lib/lab-station/assessment";
 import { parseProjectRouteId } from "@/lib/project-routing";
 import { isAbortError, logRequestFailure } from "@/lib/request-reliability";
 import {
@@ -141,7 +142,17 @@ const FormulaGraph = dynamic(() => import("@/components/formula/FormulaGraph"), 
   ),
 });
 
+const LabView = dynamic(() => import("@/components/three/skincare-lab/LabView"), {
+  ssr: false,
+  loading: () => <div role="status" className="grid place-items-center bg-slate-200 text-sm text-slate-600">กำลังโหลดห้องแล็บ…</div>,
+});
+
 type Mode = WorkspaceMode;
+const WORKSPACE_TABS: [Mode, string, SemanticIconName][] = [
+  ["assess", "ประเมิน", "flask"],
+  ["nodes", "Nodes", "puzzle"],
+  ["lab", "Lab", "beaker"],
+];
 type PrimaryNavigationItem = "assessment" | "substances";
 
 const REGIONS: { value: Region; label: string; icon: SemanticIconName }[] = [
@@ -262,15 +273,20 @@ const clampLeftSidebarWidth = (width: number, viewportWidth = Number.POSITIVE_IN
     Math.max(LEFT_SIDEBAR_MIN_WIDTH, width),
   );
 
-export default function StudioPage() {
+export default function StudioPage({ searchParams }: { searchParams: { tab?: string } }) {
+  const requestedMode = searchParams.tab === "lab" || searchParams.tab === "nodes" || searchParams.tab === "assess"
+    ? searchParams.tab : undefined;
+  const [mode, setMode] = useState<Mode>(requestedMode ?? "assess");
+  const showLab = mode === "lab";
   const [qsarEnabled, setQsarEnabled] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
+    if (showLab) return;
     api.assessmentAvailability(controller.signal)
       .then(({ enabled }) => { if (!controller.signal.aborted) setQsarEnabled(enabled); })
       .catch(() => { /* Keep assessment controls disabled if the API is unavailable. */ });
     return () => controller.abort();
-  }, []);
+  }, [showLab]);
   const router = useRouter();
   const workspaceShellRef = useRef<HTMLDivElement>(null);
   const mobileBrushControlRef = useRef<HTMLDivElement>(null);
@@ -297,7 +313,6 @@ export default function StudioPage() {
   const [savingProjectName, setSavingProjectName] = useState(false);
   const [projectContextStatus, setProjectContextStatus] = useState<"loading" | "ready" | "standalone">("loading");
   const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
-  const [mode, setMode] = useState<Mode>("assess");
   const [showTemplates, setShowTemplates] = useState(false);
   const [templateRisk, setTemplateRisk] = useState<"all" | "low" | "mid" | "high">("all");
   const [eraseMode, setEraseMode] = useState(false);
@@ -547,7 +562,8 @@ export default function StudioPage() {
           setActiveId(savedWorkspace.activeFormulaId);
           setRegion(savedWorkspace.region);
           setDayIdx(savedWorkspace.dayIdx);
-          setMode(savedWorkspace.mode);
+          const tab = new URLSearchParams(window.location.search).get("tab");
+          if (tab !== "lab" && tab !== "assess" && tab !== "nodes") setMode(savedWorkspace.mode);
           // Formula details now live inside each card, so restore the active
           // formula as the initially expanded card instead of opening a
           // separate formulation panel over the model.
@@ -2169,6 +2185,47 @@ export default function StudioPage() {
     }
   };
 
+  const workspaceTabs = (
+    <nav aria-label="มุมมอง Studio" className="absolute left-1/2 top-1/2 flex max-w-[calc(100%-8rem)] -translate-x-1/2 -translate-y-1/2 items-center rounded-xl bg-muted p-1">
+      {WORKSPACE_TABS.map(([value, label, icon]) => (
+        <button
+          key={value}
+          type="button"
+          aria-label={label}
+          aria-pressed={mode === value}
+          title={label}
+          onClick={() => {
+            changePrimaryNavigation("assessment");
+            setMode(value);
+            const url = new URL(window.location.href);
+            url.searchParams.set("tab", value);
+            window.history.replaceState(window.history.state, "", url);
+          }}
+          className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${mode === value
+            ? "bg-white font-semibold text-brand-dark shadow-sm"
+            : "text-slate-600 hover:text-slate-800"}`}
+        >
+          <SemanticIcon name={icon} className="size-3.5" />
+          <span className="hidden truncate sm:inline">{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+
+  if (showLab && activeNavigationItem === "assessment") {
+    return <div className="app-light grid h-dvh grid-rows-[3.5rem_minmax(0,1fr)] bg-background text-foreground">
+      <header className="relative flex items-center border-b bg-card px-4">
+        <a href={projectId ? "/projects" : "/"} className="grid size-9 place-items-center rounded-lg hover:bg-muted" aria-label="กลับหน้าหลัก"><ArrowLeft className="size-4" /></a>
+        {workspaceTabs}
+      </header>
+      <section aria-label="ห้องแล็บ 3D" className="relative min-h-0 overflow-hidden">
+        <LabView embedded projectId={projectId} formula={activeFormula ? {
+          id: activeFormula.id, name: productName, items: activeFormula.items,
+          assessment: chatAssessment(assessment, productName),
+        } : undefined} />
+      </section>
+    </div>;
+  }
   return (
     <div
       ref={workspaceShellRef}
@@ -2340,33 +2397,7 @@ export default function StudioPage() {
         )}
         {/* Primary modes stay visually centered regardless of left/right actions. */}
         {activeNavigationItem === "assessment" ? (
-          <div className="absolute left-1/2 top-1/2 flex max-w-[calc(100%-8rem)] -translate-x-1/2 -translate-y-1/2 items-center rounded-xl bg-muted p-1">
-            {(
-              [
-                ["assess", "ประเมิน", "flask"],
-                ["nodes", "Nodes", "puzzle"],
-              ] as [Mode, string, SemanticIconName][]
-            ).map(([m, label, icon]) => {
-              const active = mode === m;
-              return (
-                <button
-                  key={m}
-                  aria-label={label}
-                  onClick={() => {
-                    changePrimaryNavigation("assessment");
-                    setMode(m);
-                  }}
-                  className={`flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs transition ${active
-                    ? "bg-white font-semibold text-brand-dark shadow-sm"
-                    : "text-slate-600 hover:text-slate-800"
-                    }`}
-                >
-                  <SemanticIcon name={icon} className="size-3.5" />
-                  <span className="hidden truncate sm:inline">{label}</span>
-                </button>
-              );
-            })}
-          </div>
+          workspaceTabs
         ) : (
           <div id="substance-library-toolbar-host" className="flex min-w-0 flex-1 items-center" />
         )}
