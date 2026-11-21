@@ -25,6 +25,8 @@ import {
   contextKey, contextLabel, DEMO_STUDY, parseRoomQuery, roomHref, TIMED_FIXTURE, withView,
   type RoomState, type RoomView,
 } from '@/lib/lab-room/route'
+import { LabFormulaBox } from '@/components/three/skincare-lab/chat/FormulaProposalCard'
+import { useRoomFormula } from './useRoomFormula'
 import RoomGraph from './RoomGraph'
 import TimedStudySummary from './TimedStudySummary'
 import { useTimedStudy } from './useTimedStudy'
@@ -53,6 +55,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
 }) {
   const [room, setRoom] = useState(initial)
   const context = room.context
+  const studio = useRoomFormula(context, viewer)
   const memoryKey = contextKey(viewer, context)
   const projectId = context.kind === 'demo' ? context.projectId
     : context.kind === 'project' || context.kind === 'order' ? context.projectId : null
@@ -72,30 +75,41 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
       return
     }
     setRoom(next)
-    window.history[replace ? 'replaceState' : 'pushState'](null, '', href)
+    if (window.location.pathname + window.location.search !== href) {
+      window.history[replace ? 'replaceState' : 'pushState'](null, '', href)
+    }
   }, [room.context, viewer])
   useEffect(() => {
     const onPop = () => {
       const parsed = parseRoomQuery(Object.fromEntries(new URLSearchParams(window.location.search)))
       if (!parsed.state || contextKey(viewer, parsed.state.context) !== contextKey(viewer, room.context)) window.location.reload()
-      else setRoom(parsed.state)
+      else {
+        setRoom(parsed.state)
+        if (parsed.state.view === 'room' && parsed.state.agent !== currentAgent.current) {
+          setAgent(parsed.state.agent)
+          setCameraAgent(parsed.state.agent)
+          setDemoScreen({ kind: 'private' })
+        }
+      }
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [room.context, viewer])
   const goToHref = useCallback((href: string) => window.location.assign(href), [])
-  const setView = (view: RoomView, agent = room.agent) => go(withView(room, view, agent))
 
   // ---- chat, agents and camera (one owner) -------------------------------------------------
   const [restored] = useState(() => loadLabScreen(memoryKey))
   const [ready, setReady] = useState(false)
-  const [agent, setAgent] = useState<Role | null>(restored?.agent ?? null)
-  const [cameraAgent, setCameraAgent] = useState<Role | null>(null)
+  const [agent, setAgent] = useState<Role | null>(initial.agent)
+  const currentAgent = useRef(agent)
+  currentAgent.current = agent
+  const setView = (view: RoomView) => go(withView(room, view, agent))
+  const [cameraAgent, setCameraAgent] = useState<Role | null>(initial.view === 'room' ? initial.agent : null)
   const [chatWidth, setChatWidth] = useState(400)
   const [demoChat, setDemoChat] = useState(false)
   // The D01 handoff simulation runs only when D01 is the selected work context.
   const [agentDemoOn, setAgentDemoOn] = useState(context.kind === 'demo')
-  const [demoScreen, setDemoScreen] = useState<DemoScreen>(restored?.screen ?? { kind: 'private' })
+  const [demoScreen, setDemoScreen] = useState<DemoScreen>(restored?.agent === initial.agent && restored ? restored.screen : { kind: 'private' })
   const agentDemo = useAgentDemo(projectId)
   const [progress, setProgress] = useState<Progress>()
   const [sampleOpen, setSampleOpen] = useState(0)
@@ -127,12 +141,13 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
     setSampleOpen(0)
     setAgent(role)
     setCameraAgent(role)
-  }, [])
+    go(withView(room, 'room', role))
+  }, [go, room])
   const inspectSample = useCallback(() => {
-    setAgent('analyst')
+    selectAgent('analyst')
     setCameraAgent(null)
     setSampleOpen((value) => value + 1)
-  }, [])
+  }, [selectAgent])
   const stopFollowing = useCallback(() => setCameraAgent(null), [])
   const handleReady = useCallback(() => setReady(true), [])
   useEffect(() => saveLabScreen(memoryKey, { agent, screen: demoScreen }), [memoryKey, agent, demoScreen])
@@ -143,13 +158,13 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
   useEffect(() => { if (agentDemoOn && demoReady) resumeRun() }, [agentDemoOn, demoReady, resumeRun, agentDemo.scopeKey])
   useEffect(() => { if (chatOpen) panelRef.current?.focus({ preventScroll: true }) }, [chatOpen])
   // Under the full-width graph the room is neither focusable nor read out, but stays mounted.
-  useEffect(() => { splitRef.current?.toggleAttribute('inert', graphOpen) }, [graphOpen])
+  useEffect(() => { splitRef.current?.toggleAttribute('inert', room.view !== 'room') }, [room.view])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const scripted = params.get('demoChat') === '1'
     setDemoChat(scripted)
-    if (params.has('agentDemo')) setAgentDemoOn(params.get('agentDemo') === '1')
+    if (initial.context.kind === 'demo' && params.has('agentDemo')) setAgentDemoOn(params.get('agentDemo') === '1')
     try {
       const value = Number(window.localStorage.getItem(CHAT_WIDTH_KEY))
       if (value >= CHAT_MIN_WIDTH && value <= CHAT_MAX_WIDTH) setChatWidth(value)
@@ -177,8 +192,11 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
       if (screen) setDemoScreen(message.group && message.jobId ? { kind: 'group', jobId: message.jobId, highlightId: message.messageId }
         : { kind: 'private', threadId: message.threadId, highlightId: message.messageId })
       setAgent(message.agent)
-    } else if (role) selectAgent(role)
-    go(withView(room, 'room', message?.agent ?? role ?? room.agent))
+    } else if (role) {
+      selectAgent(role)
+      return
+    }
+    go(withView(room, 'room', message?.agent ?? currentAgent.current))
   }, [go, memoryKey, room, selectAgent])
 
   // ---- chat width ----------------------------------------------------------------------------
@@ -240,9 +258,10 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
         </div>
         <nav aria-label="มุมมองห้องแล็บ" className="lab-room-header-actions">
           {headerAction('room', 'แชตกับ Agent', MessageCircle, () => {
-            if (room.view !== 'room') setView('room')
-            if (deskStudy) { setAgent((value) => value ?? 'director'); return }
-            setAgent((value) => value ?? 'director')
+            const role = agent ?? 'director'
+            go(withView(room, 'room', role))
+            setAgent(role)
+            if (deskStudy) return
             setCameraAgent(null)
             if (agentDemoOn) setDemoScreen({ kind: 'inbox' })
           })}
@@ -253,7 +272,7 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
 
       <div className="relative min-h-0">
         {/* The room stays mounted under the graph and tools: chat drafts, camera and work go on. */}
-        <div ref={splitRef} className="lab-chat-split" data-chat-open={chatOpen} aria-hidden={graphOpen || undefined}>
+        <div ref={splitRef} className="lab-chat-split" data-chat-open={chatOpen} aria-hidden={room.view !== 'room' || undefined}>
           <div className="lab-room-pane flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1 select-none overflow-hidden">
               <div className="lab-room-viewport">
@@ -292,7 +311,9 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
               <div className="lab-room-actions">
                 {rolePicker(true)}
                 {agentDemoOn && !deskStudy && <button type="button" className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-teal-600" onClick={() => {
-                  setAgent((value) => value ?? 'director')
+                  const role = agent ?? 'director'
+                  setAgent(role)
+                  go(withView(room, 'room', role))
                   setCameraAgent(null)
                   setDemoScreen({ kind: 'inbox' })
                 }}><MessageCircle aria-hidden="true" className="size-4 text-teal-800" />รายการแชต</button>}
@@ -328,15 +349,15 @@ export default function LabRoom({ initial, viewer, localPreview, deskSignedIn, d
                   commitWidth(Math.max(CHAT_MIN_WIDTH, Math.min(maxChatWidth(), width + direction * 24)))
                 }} />
               {deskStudy ? <DeskAgentActivity study={deskStudy} role={agent} onClose={() => selectAgent(null)} onOpenGraph={(role) => openGraph(role)} />
-                : <LabAgentChat key={JSON.stringify([chatScope, demoScreen.kind, demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId : null])}
+                : <LabFormulaBox.Provider value={studio.box}><LabAgentChat key={JSON.stringify([chatScope, demoScreen.kind, demoScreen.kind === 'group' ? demoScreen.jobId : demoScreen.kind === 'private' ? demoScreen.threadId : null])}
                   chatScope={chatScope} drafts={drafts} setDrafts={setDrafts} lastThreads={lastThreads.current}
-                  agent={agent} formula={undefined} chat={chat} onSelectAgent={selectAgent} onClose={() => {
+                  agent={agent} formula={demoChat || agentDemoOn || context.kind === 'demo' ? undefined : studio.formula} chat={chat} onSelectAgent={selectAgent} onClose={() => {
                     selectAgent(null)
                     requestAnimationFrame(() => roleSelect.current?.focus({ preventScroll: true }))
                   }} progress={demoChat ? progress : undefined}
                   onModeChange={chooseChatMode}
                   sampleOpen={sampleOpen} agentDemo={agentDemoOn ? agentDemo : undefined} screen={demoScreen} navigate={setDemoScreen}
-                  onOpenGraph={(role) => openGraph(role)} onReadingThread={rememberThread} />}
+                  onOpenGraph={(role) => openGraph(role)} onReadingThread={rememberThread} /></LabFormulaBox.Provider>}
             </div>
           )}
         </div>

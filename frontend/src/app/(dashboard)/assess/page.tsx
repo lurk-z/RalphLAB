@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { requireActiveProject } from "@/lib/active-project";
+import { loginEnabled } from "@/lib/login-mode";
+import { currentSession, requireActiveProject } from "@/lib/active-project";
 import Studio from "./Studio";
 
 export default async function AssessPage({searchParams}: {
@@ -12,5 +13,7 @@ export default async function AssessPage({searchParams}: {
     if (searchParams.agent) query.set("agent", searchParams.agent);
     redirect("/assess?" + query);
   }
-  return <Studio searchParams={searchParams} />;
+  const session = loginEnabled ? await currentSession() : null;
+  const viewer = session?.user?.id ?? session?.user?.email ?? "guest";
+  return <Studio key={JSON.stringify([viewer, project])} viewer={viewer} searchParams={searchParams} />;
 }

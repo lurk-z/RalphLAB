@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { signIn, useSession } from "next-auth/react";
 import { useRef, useState } from "react";
 import { ChevronRight, FlaskConical, Play, RotateCcw, X } from "lucide-react";
+import { loginEnabled } from "@/lib/login-mode";
 import { api, apiErrorMessage, http } from "@/lib/api";
 import type { Project, Study } from "@/app/lab-room/orders/types";
 import { WORKBENCH_ROLE_LABEL as ROLE_LABEL } from "../agents/roles";
@@ -83,14 +84,14 @@ export function DeskLauncher({
           <div className="desk-actions">
             <button
               className="desk-primary"
-              disabled={busy || status !== "authenticated"}
+              disabled={busy || (loginEnabled && status !== "authenticated")}
               onClick={() => start(true)}
             >
               เปรียบเทียบอินซูลินปกติกับ lispro
             </button>
             <button
               className="desk-secondary"
-              disabled={busy || status !== "authenticated"}
+              disabled={busy || (loginEnabled && status !== "authenticated")}
               onClick={() => start(false)}
             >
               {busy ? "กำลังเปิดใบงาน…" : "เปิดงานตัวอย่างอินซูลิน"}

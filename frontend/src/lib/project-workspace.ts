@@ -99,10 +99,10 @@ function workspaceKey(projectId: number): string | null {
   return isProjectId(projectId) ? `${WORKSPACE_KEY_PREFIX}${projectId}` : null;
 }
 
-function browserStorage(): WorkspaceStorage | null {
+function browserStorage(type: "localStorage" | "sessionStorage" = "localStorage"): WorkspaceStorage | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage;
+    return window[type];
   } catch {
     return null;
   }
@@ -430,7 +430,10 @@ export function loadProjectWorkspace(
   projectId: number,
   storage: WorkspaceStorage | null = browserStorage(),
 ): ProjectWorkspace | null {
-  const key = workspaceKey(projectId);
+  return readWorkspace(workspaceKey(projectId), storage);
+}
+
+function readWorkspace(key: string | null, storage: WorkspaceStorage | null): ProjectWorkspace | null {
   if (!key || !storage) return null;
 
   try {
@@ -446,7 +449,10 @@ export function saveProjectWorkspace(
   draft: ProjectWorkspaceDraft,
   storage: WorkspaceStorage | null = browserStorage(),
 ): boolean {
-  const key = workspaceKey(projectId);
+  return writeWorkspace(workspaceKey(projectId), draft, storage);
+}
+
+function writeWorkspace(key: string | null, draft: ProjectWorkspaceDraft, storage: WorkspaceStorage | null): boolean {
   if (!key || !storage) return false;
 
   const workspace = normalizeProjectWorkspace({
@@ -477,4 +483,19 @@ export function deleteProjectWorkspace(
   } catch {
     return false;
   }
+}
+
+/** Standalone Studio and Lab share a viewer-scoped draft for this browser tab only. */
+function studioWorkspaceKey(projectId: number | null, viewer: string) {
+  return projectId === null ? WORKSPACE_KEY_PREFIX + "tab:" + encodeURIComponent(viewer) : workspaceKey(projectId);
+}
+
+export function loadStudioWorkspace(projectId: number | null, viewer: string,
+  storage = browserStorage(projectId === null ? "sessionStorage" : "localStorage")) {
+  return readWorkspace(studioWorkspaceKey(projectId, viewer), storage);
+}
+
+export function saveStudioWorkspace(projectId: number | null, viewer: string, draft: ProjectWorkspaceDraft,
+  storage = browserStorage(projectId === null ? "sessionStorage" : "localStorage")) {
+  return writeWorkspace(studioWorkspaceKey(projectId, viewer), draft, storage);
 }

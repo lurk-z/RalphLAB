@@ -110,9 +110,9 @@ import {
 } from "@/lib/substance-library-local";
 import {
   FORMULA_GRAPH_DRAFT_ID,
-  loadProjectWorkspace,
+  loadStudioWorkspace,
   formulaAssessmentSignature,
-  saveProjectWorkspace,
+  saveStudioWorkspace,
   type FormulaAssessmentSnapshot,
   type FormulaGraphSnapshot,
   type PaintMaskSnapshot,
@@ -263,7 +263,7 @@ const clampLeftSidebarWidth = (width: number, viewportWidth = Number.POSITIVE_IN
     Math.max(LEFT_SIDEBAR_MIN_WIDTH, width),
   );
 
-export default function StudioPage({ searchParams }: { searchParams: { tab?: string; agent?: string } }) {
+export default function StudioPage({ searchParams, viewer }: { viewer: string; searchParams: { tab?: string; agent?: string } }) {
   // `tab=graph` opens the project graph; older `tab=nodes` links still land there.
   const requestedMode = tabMode(searchParams.tab);
   const [mode, setMode] = useState<Mode>(requestedMode ?? "assess");
@@ -544,10 +544,39 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
   // `/projects/:id/assess` redirects here with projectId so there is only one
   // real assessment workspace. Every run remains attached to that project.
   useEffect(() => {
+    const restore = (id: number | null) => {
+      const savedWorkspace = loadStudioWorkspace(id, viewer);
+      if (savedWorkspace) {
+        setFormulas(savedWorkspace.formulas);
+        setActiveId(savedWorkspace.activeFormulaId);
+        setRegion(savedWorkspace.region);
+        setDayIdx(savedWorkspace.dayIdx);
+        const tab = new URLSearchParams(window.location.search).get("tab");
+        // Lab and Graph live in /lab-room now; a saved Studio view reopens Assessment.
+        if (!tabMode(tab)) setMode("assess");
+        // Formula details now live inside each card, so restore the active
+        // formula as the initially expanded card instead of opening a
+        // separate formulation panel over the model.
+        setExpandedFormulaIds(
+          savedWorkspace.activeFormulaId
+            ? new Set([savedWorkspace.activeFormulaId])
+            : new Set(),
+        );
+        setAssessmentByFormulaId(savedWorkspace.assessmentByFormulaId);
+        setPaintByFormulaId(savedWorkspace.paintByFormulaId);
+        setGraphByFormulaId(savedWorkspace.graphByFormulaId);
+      }
+    };
     const raw = new URLSearchParams(window.location.search).get("projectId");
+    const onReturn = (event: PageTransitionEvent) => {
+      if (event.persisted) restore(raw === null ? null : parseProjectRouteId(raw));
+    };
     if (raw === null) {
+      restore(null);
+      setWorkspaceHydrated(true);
+      window.addEventListener("pageshow", onReturn);
       setProjectContextStatus("standalone");
-      return;
+      return () => window.removeEventListener("pageshow", onReturn);
     }
     const id = parseProjectRouteId(raw);
     if (id === null) {
@@ -561,27 +590,8 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
       .getProject(id, controller.signal)
       .then((loadedProject) => {
         if (!alive) return;
-        const savedWorkspace = loadProjectWorkspace(loadedProject.id);
-        if (savedWorkspace) {
-          setFormulas(savedWorkspace.formulas);
-          setActiveId(savedWorkspace.activeFormulaId);
-          setRegion(savedWorkspace.region);
-          setDayIdx(savedWorkspace.dayIdx);
-          const tab = new URLSearchParams(window.location.search).get("tab");
-          // Lab and Graph live in /lab-room now; a saved Studio view reopens Assessment.
-          if (!tabMode(tab)) setMode("assess");
-          // Formula details now live inside each card, so restore the active
-          // formula as the initially expanded card instead of opening a
-          // separate formulation panel over the model.
-          setExpandedFormulaIds(
-            savedWorkspace.activeFormulaId
-              ? new Set([savedWorkspace.activeFormulaId])
-              : new Set(),
-          );
-          setAssessmentByFormulaId(savedWorkspace.assessmentByFormulaId);
-          setPaintByFormulaId(savedWorkspace.paintByFormulaId);
-          setGraphByFormulaId(savedWorkspace.graphByFormulaId);
-        }
+        restore(loadedProject.id);
+        window.addEventListener("pageshow", onReturn);
         setProject(loadedProject);
         setProjectId(loadedProject.id);
         setWorkspaceHydrated(true);
@@ -599,8 +609,9 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
     return () => {
       alive = false;
       controller.abort();
+      window.removeEventListener("pageshow", onReturn);
     };
-  }, [router]);
+  }, [router, viewer]);
 
   const workspaceDraft = useMemo<ProjectWorkspaceDraft>(
     () => ({
@@ -632,28 +643,28 @@ export default function StudioPage({ searchParams }: { searchParams: { tab?: str
   // Hydration must finish first so the default React state can never overwrite
   // a saved workspace before it has been restored.
   useEffect(() => {
-    if (!projectId || projectContextStatus !== "ready" || !workspaceHydrated) return;
+    if (projectContextStatus === "loading" || !workspaceHydrated) return;
     const timeout = window.setTimeout(() => {
-      if (!saveProjectWorkspace(projectId, workspaceDraft)) {
+      if (!saveStudioWorkspace(projectId, viewer, workspaceDraft)) {
         console.warn(`Unable to persist workspace for project ${projectId}`);
       }
     }, 300);
     return () => window.clearTimeout(timeout);
-  }, [projectId, projectContextStatus, workspaceHydrated, workspaceDraft]);
+  }, [projectId, projectContextStatus, workspaceHydrated, workspaceDraft, viewer]);
 
   // Flush the latest draft on refresh, tab close, or client-side navigation so
   // a change made just before leaving is not lost to the debounce window.
   useEffect(() => {
-    if (!projectId || projectContextStatus !== "ready" || !workspaceHydrated) return;
+    if (projectContextStatus === "loading" || !workspaceHydrated) return;
     const flush = () => {
-      saveProjectWorkspace(projectId, latestWorkspaceDraft.current);
+      saveStudioWorkspace(projectId, viewer, latestWorkspaceDraft.current);
     };
     window.addEventListener("pagehide", flush);
     return () => {
       window.removeEventListener("pagehide", flush);
       flush();
     };
-  }, [projectId, projectContextStatus, workspaceHydrated]);
+  }, [projectId, projectContextStatus, workspaceHydrated, viewer]);
 
   const activeSubstances = useMemo(
     () =>
