@@ -98,9 +98,13 @@ export function createChatArchive(storage: () => StorageAccess, sessionId: strin
     const { saved, previousSession } = load(scope);
     update(scope, { saved: saved.filter((t) => t.id !== id), previousSession: previousSession.filter((t) => t.id !== id) });
   }
+  /** Drop one scope's transcripts (starting a new test run). */
+  function clear(scope: DemoScope) {
+    update(scope, { saved: [], previousSession: [] });
+  }
   function subscribe(fn: () => void) {
     listeners.add(fn);
     return () => { listeners.delete(fn); };
   }
-  return { load, append, remove, subscribe };
+  return { load, append, remove, clear, subscribe };
 }

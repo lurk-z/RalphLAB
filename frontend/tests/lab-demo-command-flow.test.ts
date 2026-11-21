@@ -1,17 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDemoStore, createLabDemo, createMockTransport, DEMO_PLAYBOOK, type Fault } from "../src/lib/lab-demo/engine.ts";
-import { counts, type AgentRole } from "../src/lib/lab-demo/events.ts";
+import { counts, currentScope, type AgentRole } from "../src/lib/lab-demo/events.ts";
+import { createMockSearchAdapter } from "../src/lib/lab-demo/research.ts";
 
 const roles: AgentRole[] = ["director", "researcher", "formulator", "analyst", "evaluator"];
 const brief = "เปิดโครงการลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด";
-const orderedTasks = ["director", "formulator", "analyst", "researcher", "formulator", "analyst", "evaluator", "director"];
+// The Curator's evidence step hands its passage to the toxicologist for review (the second
+// analyst task) before the revision goes to the Chemist.
+const orderedTasks = ["director", "formulator", "analyst", "researcher", "analyst", "formulator", "analyst", "evaluator", "director"];
+const owner = { id: "guest", label: "เจ้าของโครงการจำลอง", owner: true, simulated: true };
 
 function rehearsal(faults: Fault[] = []) {
   return createLabDemo({
     store: createDemoStore(), scope: { userId: "guest", projectId: "qa", mode: "demo" },
-    experimentId: "D01", transport: createMockTransport({ faults }), playbook: DEMO_PLAYBOOK,
+    experimentId: "D01", transport: createMockTransport({ faults }), playbook: DEMO_PLAYBOOK, search: createMockSearchAdapter(),
   });
+}
+
+/** Run to the end, approving each outside search the Curator asks for. */
+async function settle(demo: ReturnType<typeof rehearsal>) {
+  for (;;) {
+    await demo.idle();
+    const pending = Object.values(demo.state().research).filter((r) => r.status === "pending");
+    if (!pending.length) return;
+    for (const r of pending) demo.decideResearch(r.requestId, "approve", owner, currentScope(demo.state().projectId, r));
+  }
 }
 
 for (const role of roles) {
@@ -27,6 +41,9 @@ for (const role of roles) {
     demo.decideGroup(result.jobId!, true);
     demo.decideGroup(result.jobId!, true);
     await demo.idle();
+    // Joining the group is not approving a search: the Curator is still waiting.
+    assert.equal(Object.values(demo.state().research)[0]?.status, "pending");
+    await settle(demo);
     const state = demo.state();
     const tasks = Object.values(state.tasks);
     assert.equal(tasks.length, orderedTasks.length);
@@ -37,7 +54,7 @@ for (const role of roles) {
     const job = state.jobs[result.jobId!];
     assert.equal(new Set(job.assignees).size, 5);
     assert.equal(counts(state).pointers, 1);
-    assert.equal(counts(state).handoffs, role === "director" ? 7 : 8);
+    assert.equal(counts(state).handoffs, role === "director" ? 8 : 9);
     for (const delivery of Object.values(state.handoffs)) {
       assert.notEqual(delivery.from, delivery.to);
       assert.equal(delivery.status, "accepted");
@@ -93,7 +110,7 @@ test("a failed intermediate delivery resumes from the same handoff to the final 
   assert.equal(demo.state().handoffs[handoffId].status, "failed");
   assert.equal(counts(demo.state()).tasks, 2);
   await demo.retry(handoffId);
-  await demo.idle();
+  await settle(demo);
   assert.equal(demo.state().handoffs[handoffId].attempts, 3);
   assert.deepEqual(Object.values(demo.state().tasks).map(task => task.status), orderedTasks.map(() => "completed"));
 });
@@ -104,7 +121,7 @@ test("declining keeps the entire job private and delivers the summary to each ow
   await demo.idle();
   demo.decideGroup(jobId!, false);
   demo.decideGroup(jobId!, true);
-  await demo.idle();
+  await settle(demo);
   const state = demo.state();
   assert.equal(counts(state).groupThreads, 0);
   for (const task of Object.values(state.tasks)) {

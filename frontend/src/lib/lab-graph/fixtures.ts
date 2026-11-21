@@ -85,7 +85,7 @@ export const D01_FIXTURES: StudyFixtures = {
       summary: 'ใช้ประกอบการปรับสัดส่วนเบส B',
       record: 'ระเบียนจำลองของเบส B ด้านระคายเคืองผิว',
       query: null,
-      document: { label: 'บันทึกตัวอย่าง E01', stepId: 'source', real: false },
+      document: { label: 'บันทึกระเบียน E01', stepId: 'record', real: false },
     },
   },
 }

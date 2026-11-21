@@ -3,34 +3,58 @@
  * a user's message into events.
  *
  * - The store keeps one `LabDemoState` per scope (user + project + demo mode), above the
- *   lifetime of any view, so switching tabs never strands a task.
+ *   lifetime of any view, so switching tabs never strands a task. With a persistence adapter
+ *   it also restores the scope's event history after a refresh, without side effects.
  * - `HandoffTransport` is the seam for the backend. The mock below behaves like a recipient
  *   that stores receipts by handoff id: delivering the same handoff again returns the
  *   original receipt instead of creating new work.
  * - A failed handoff is retried automatically once with the same handoff id. If that also
  *   fails the handoff is marked `failed` and `retry()` offers a manual attempt.
+ * - Research outside the project waits for the owner's approval (see `research.ts`).
  */
 import {
+  currentScope,
   groupThreadId,
   initialState,
   reduce,
   scopeKey,
   type AgentRole,
   type DemoScope,
+  type EvidenceFact,
   type Handoff,
   type LabDemoState,
   type LabEvent,
+  type ResearchRequest,
+  type Task,
 } from "./events.ts";
 import { pendingClarifications } from "./agent-status.ts";
 import { classifyIntent, ownerFor, type Intent } from "./intent.ts";
 import { assessmentViewRequested, demoAssessment, requestedView, type ChatAssessment } from "./chat-assessment.ts";
+import {
+  DEFAULT_SCENARIO, ENDPOINT_TH, SEARCH_LIMIT, SearchError, baselineSources, draftQuery, scopeKeyOf,
+  type Approver, type ResearchScope, type Scenario, type SearchAdapter, type SourceRecord,
+} from "./research.ts";
 
 // ---------------------------------------------------------------- store
 
 type Listener = () => void;
 type EventInput = LabEvent extends infer E ? (E extends LabEvent ? Omit<E, "eventId" | "sequence" | "projectId" | "source"> : never) : never;
 
-export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoState, start: number) => void) {
+/** Where a scope's event history is kept between page loads (localStorage in the browser). */
+export type DemoPersistence = {
+  load(scope: DemoScope): LabEvent[];
+  save(scope: DemoScope, events: LabEvent[]): void;
+  clear(scope: DemoScope): void;
+};
+
+/** Highest `msg-N` number used anywhere in a history, so restored ids are never reused. */
+function lastMessageNumber(events: LabEvent[]) {
+  let max = 0;
+  for (const match of JSON.stringify(events).matchAll(/:msg-(\d+)/g)) max = Math.max(max, Number(match[1]));
+  return max;
+}
+
+export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoState, start: number) => void, persistence?: DemoPersistence) {
   const states = new Map<string, LabDemoState>();
   const sequences = new Map<string, number>();
   const messageNumbers = new Map<string, number>();
@@ -41,6 +65,11 @@ export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoSt
     let state = states.get(key);
     if (!state) {
       state = initialState(scope.projectId);
+      // Restoring replays recorded facts only: no transport, search or archive is touched.
+      const events = persistence?.load(scope) ?? [];
+      for (const event of events) state = reduce(state, event);
+      sequences.set(key, Math.max(0, ...state.log.map((e) => e.sequence)));
+      messageNumbers.set(key, lastMessageNumber(state.log));
       states.set(key, state);
     }
     return state;
@@ -48,6 +77,7 @@ export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoSt
 
   /** Stamp a new event with the next sequence for its scope and apply it. */
   function emit(scope: DemoScope, input: EventInput): LabEvent {
+    get(scope);
     const key = scopeKey(scope);
     const sequence = (sequences.get(key) ?? 0) + 1;
     sequences.set(key, sequence);
@@ -62,6 +92,7 @@ export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoSt
     const after = reduce(before, event);
     if (after !== before) {
       states.set(key, after);
+      persistence?.save(scope, after.log);
       if (after.messages.length > before.messages.length) onMessages?.(scope, after, before.messages.length);
       listeners.forEach((listener) => listener());
     }
@@ -70,10 +101,21 @@ export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoSt
 
   /** Message numbers live with the state, so a remounted view never reuses an id. */
   function nextMessageNumber(scope: DemoScope) {
+    get(scope);
     const key = scopeKey(scope);
     const n = (messageNumbers.get(key) ?? 0) + 1;
     messageNumbers.set(key, n);
     return n;
+  }
+
+  /** Forget one scope's run (a reviewer's “start a new test run”). Other scopes are untouched. */
+  function reset(scope: DemoScope) {
+    const key = scopeKey(scope);
+    states.set(key, initialState(scope.projectId));
+    sequences.set(key, 0);
+    messageNumbers.set(key, 0);
+    persistence?.clear(scope);
+    listeners.forEach((listener) => listener());
   }
 
   function subscribe(listener: Listener) {
@@ -81,7 +123,7 @@ export function createDemoStore(onMessages?: (scope: DemoScope, state: LabDemoSt
     return () => listeners.delete(listener);
   }
 
-  return { get, emit, apply, subscribe, nextMessageNumber };
+  return { get, emit, apply, subscribe, nextMessageNumber, reset };
 }
 
 export type DemoStore = ReturnType<typeof createDemoStore>;
@@ -165,11 +207,32 @@ import { BRIEF, DECISION, HANDOFFS, RESULTS } from './study-example.ts';
 
 export type SubmitResult = { intent: Intent; handoffId?: string; taskId?: string; jobId?: string };
 
+/** Work an agent does on its own inside a step (research gate, screening, review). */
+export type StepAction = "inspect-local" | "external-search" | "screen" | "record-e01" | "review" | "select";
+
 /** One observable step of an agent's task. `handoff` steps finish when the recipient accepts. */
-export type WorkStep = { id: string; label: string; waitFor?: string; handoff?: { to: AgentRole; title: string; stage?: string } };
-export type WorkPlan = { steps: WorkStep[]; summary: string; assessment?: ChatAssessment };
+export type WorkStep = {
+  id: string;
+  label: string;
+  waitFor?: string;
+  handoff?: { to: AgentRole; title: string; stage?: string };
+  action?: StepAction;
+  /** Skipped (and marked so) when the research found no usable evidence for this question. */
+  requiresEvidence?: boolean;
+};
+export type WorkPlan = {
+  steps: WorkStep[];
+  summary: string;
+  /** A summary that depends on what the task found (research outcomes). */
+  summaryFor?: (state: LabDemoState, task: Task) => string;
+  assessment?: ChatAssessment;
+};
 /** What an agent does once it has accepted a handoff (scripted for the demo, live agents later). */
 export type Playbook = (handoff: { from: AgentRole; to: AgentRole; title: string; stage?: string }) => WorkPlan | null;
+
+/** The D01 question the Curator investigates: base B's skin irritation, for V1. */
+export const RESEARCH_QUESTION = { ingredient: "เบส B", endpoint: "skin" as const, versionId: "V1" };
+const PASSAGE_STAGE = "passage";
 
 /** Example outputs for the offline command-delivery rehearsal. No assay or QSAR is run here. */
 const ROLE_WORK: Record<AgentRole, WorkPlan> = {
@@ -201,15 +264,58 @@ const ROLE_WORK: Record<AgentRole, WorkPlan> = {
   },
 };
 
+/** Sources with a recorded passage for the D01 question in this job (local or found). */
+export function passagesFor(state: LabDemoState, jobId: string) {
+  return Object.values(state.facts).filter((f): f is Extract<typeof f, { kind: "passage" }> =>
+    f.kind === "passage" && state.tasks[f.taskId]?.jobId === jobId);
+}
+
+const SKIN = ENDPOINT_TH.skin;
+
+/** Curator · the D01 evidence question, with the approval gate before any outside search. */
+function curatorPlan(next: (typeof HANDOFFS)[number]): WorkPlan {
+  return {
+    steps: [
+      { id: "local", label: "ตรวจคู่มือบทบาทและแหล่งในโครงการ", action: "inspect-local" },
+      { id: "search", label: "ขออนุมัติและค้นเอกสารเพิ่ม", action: "external-search" },
+      { id: "screen", label: "ตรวจหลักฐานและบันทึกข้อความ", action: "screen" },
+      { id: "pass", label: "ส่งผลตรวจหลักฐานให้ Computational Toxicologist", handoff: { to: "analyst", title: `ส่งผลตรวจหลักฐาน${SKIN}ของเบส B`, stage: PASSAGE_STAGE } },
+      { id: "record", label: "บันทึกระเบียน E01 จากข้อความหลักฐาน", action: "record-e01", requiresEvidence: true },
+      { id: "assign", label: next.title, handoff: { to: next.to, title: next.title, stage: next.id }, requiresEvidence: true },
+    ],
+    summary: next.note,
+    summaryFor: (state, task) => passagesFor(state, task.jobId).length
+      ? next.note
+      : `การ${SKIN}ของเบส B สำหรับ V1: ข้อมูลไม่พอ · พักการเสนอรุ่นลูกจนกว่าจะมีหลักฐาน`,
+  };
+}
+
+/** Computational Toxicologist · reviews the handed-over passage, then decides about V1. */
+const REVIEW_PLAN: WorkPlan = {
+  steps: [
+    { id: "review", label: "ตรวจข้อความหลักฐานที่ได้รับ", action: "review" },
+    { id: "select", label: "ตัดสินว่าจะใช้กับ V1 หรือไม่", action: "select" },
+  ],
+  summary: "",
+  summaryFor: (state, task) => {
+    const used = Object.values(state.facts).filter((f) => f.kind === "used" && f.by === task.owner && f.versionId === RESEARCH_QUESTION.versionId)
+    return used.length
+      ? `เลือก ${used.map((f) => f.kind === "used" ? f.sourceId : "").join(", ")} เป็นหลักฐาน${SKIN}ของ V1 · ข้อมูลจำลอง`
+      : `การ${SKIN}ของ V1: ข้อมูลไม่พอ · บันทึกไว้เพื่อทดสอบเพิ่มเติม`;
+  },
+};
+
 export const DEMO_PLAYBOOK: Playbook = ({ to, stage }) => {
   if (stage === "decision") return {
     steps: [{ id: "compare", label: "เทียบผล V1 กับ V2-A และตรวจเกณฑ์หยุด" }],
     summary: DECISION,
   };
+  if (stage === PASSAGE_STAGE && to === "analyst") return REVIEW_PLAN;
   const previous = stage ? HANDOFFS.findIndex(row => row.id === stage && row.to === to) : -1;
   const next = HANDOFFS[previous + 1];
   const plan = ROLE_WORK[to];
   if (!next || next.from !== to) return plan;
+  if (stage === "evidence" && to === "researcher") return curatorPlan(next);
   const work = to === "formulator"
     ? [{ id: "recipe", label: next.note }, { id: "total", label: "ตรวจสัดส่วนรวมและสารที่ล็อก" }]
     : plan.steps;
@@ -220,6 +326,19 @@ export const DEMO_PLAYBOOK: Playbook = ({ to, stage }) => {
   };
 };
 
+/** Why each source the Curator checks does or does not answer the skin-irritation question. */
+function consultReason(source: SourceRecord) {
+  switch (source.endpoint) {
+    case "skin": return `ตรงประเด็น${SKIN}ของ${RESEARCH_QUESTION.ingredient}`;
+    case "sens": return `เป็นเรื่องการแพ้สัมผัส คนละ endpoint กับ${SKIN}`;
+    case "identity": return `ยืนยันตัวตนสารได้ แต่ไม่มีผล${SKIN}`;
+    case "method": return "บอกวิธีตรวจหลักฐาน ไม่ใช่หลักฐานของสาร";
+    case "hypothesis": return "เป็นสมมติฐาน ยังไม่ใช่หลักฐาน";
+  }
+}
+
+type WorkOutcome = "done" | "wait";
+
 export function createLabDemo({
   store,
   scope,
@@ -227,6 +346,7 @@ export function createLabDemo({
   transport,
   playbook,
   stepMs = 0,
+  search,
 }: {
   store: DemoStore;
   scope: DemoScope;
@@ -236,6 +356,8 @@ export function createLabDemo({
   playbook?: Playbook;
   /** Pause between visible step changes (0 in tests). */
   stepMs?: number;
+  /** Outside document search. Called only after the owner approves the shown scope. */
+  search?: SearchAdapter;
 }) {
   const inFlight = new Set<string>();
   /** Background work (tasks run concurrently); `idle()` waits for all of it. */
@@ -243,7 +365,20 @@ export function createLabDemo({
   /** Child handoff → the parent task step that started it. */
   const parentStep = new Map<string, { taskId: string; stepId: string }>();
   const plans = new Map<string, WorkPlan>();
+  /** Tasks whose step loop is running now (a task resumes at most once at a time). */
+  const working = new Set<string>();
+  /** Searches running in this engine (a restored `searching` without one was interrupted). */
+  const searching = new Set<string>();
+  /** Failed searches the owner asked to retry. */
+  const retries = new Set<string>();
+  let disposed = false;
   const pace = () => (stepMs > 0 ? new Promise<void>((resolve) => setTimeout(resolve, stepMs)) : Promise.resolve());
+
+  /** Every event this engine produces. After `dispose()` (a reset run) late work writes nothing. */
+  function emit(input: EventInput) {
+    if (disposed) return null;
+    return store.emit(scope, input);
+  }
 
   function track(work: Promise<void>) {
     running.add(work);
@@ -275,11 +410,18 @@ export function createLabDemo({
     }
   }
 
+  /** A run's scenario and the sources the project starts with (once per run). */
+  function configure(scenario: Scenario = DEFAULT_SCENARIO) {
+    if (store.get(scope).scenario) return false;
+    emit({ type: "run.configured", scenario, sources: baselineSources(scenario), experimentId, threadId: privateThread("director") });
+    return true;
+  }
+
   /** One attempt through the transport. Emits sent → accepted | attempt_failed. */
   async function attempt(handoffId: string, number: number) {
     const handoff = store.get(scope).handoffs[handoffId];
     // The first attempt was announced by submit(); retries announce themselves.
-    if (number > handoff.attempts) store.emit(scope, {
+    if (number > handoff.attempts) emit({
       type: "handoff.sent",
       jobId: handoff.jobId,
       handoffId,
@@ -303,11 +445,12 @@ export function createLabDemo({
         title: handoff.title,
         attempt: number,
       });
+      if (disposed) return false;
       const job = store.get(scope).jobs[handoff.jobId];
       const base = privateThread(receipt.by);
       const recipientThread = job.promoted ? job.threadId :
         job.originThreadId === base || job.originThreadId.startsWith(base + ":") ? job.originThreadId : `${base}:delivery:${session}:${job.jobId}`;
-      store.emit(scope, {
+      emit({
         type: "handoff.accepted",
         handoffId,
         taskId: receipt.taskId,
@@ -319,6 +462,10 @@ export function createLabDemo({
         experimentId: handoff.experimentId,
         threadId: recipientThread,
       });
+      // The recipient now holds the passages: a separate fact from reviewing or using them.
+      if (handoff.stage === PASSAGE_STAGE) for (const p of passagesFor(store.get(scope), handoff.jobId)) {
+        recordFact({ kind: "handed", sourceId: p.sourceId, from: handoff.from, to: handoff.to, handoffId }, handoff.threadId);
+      }
       const parent = parentStep.get(handoffId);
       if (parent) {
         step(parent.taskId, parent.stepId, "done");
@@ -326,19 +473,23 @@ export function createLabDemo({
       }
       // The recipient starts its own work; the sender does not wait for it.
       if (handoff.stage !== "specialist" && handoff.from === "director" && (receipt.by === "formulator" || receipt.by === "researcher") && !job.invitation && !job.promoted) {
-        store.emit(scope, { type: "job.group_requested", jobId: job.jobId, taskId: receipt.taskId,
+        emit({ type: "job.group_requested", jobId: job.jobId, taskId: receipt.taskId,
           messageId: nextMessageId(), experimentId, threadId: recipientThread });
       } else startRecipientWork(handoff);
       return true;
     } catch (error) {
       const reason = error instanceof DeliveryError ? error.reason : "unreachable";
-      store.emit(scope, { type: "handoff.attempt_failed", handoffId, attempt: number, reason, experimentId: handoff.experimentId, threadId: handoff.threadId });
+      emit({ type: "handoff.attempt_failed", handoffId, attempt: number, reason, experimentId: handoff.experimentId, threadId: handoff.threadId });
       return false;
     }
   }
 
+  function planFor(handoff: Handoff) {
+    return handoff.stage === "specialist" ? ROLE_WORK[handoff.to] : playbook?.(handoff) ?? null;
+  }
+
   function startRecipientWork(handoff: Handoff) {
-    const plan = handoff.stage === "specialist" ? ROLE_WORK[handoff.to] : playbook?.(handoff);
+    const plan = planFor(handoff);
     if (plan) track(runWork(handoff.taskId, plan));
   }
 
@@ -348,21 +499,22 @@ export function createLabDemo({
     const context = { jobId, experimentId: job.experimentId, threadId: job.invitation.threadId };
     if (create) {
       const introMessageId = nextMessageId();
-      store.emit(scope, { ...context, type: "job.promoted", originThreadId: job.originThreadId,
+      emit({ ...context, type: "job.promoted", originThreadId: job.originThreadId,
         groupThreadId: groupThreadId(scope.projectId), assignees: job.assignees, pointerMessageId: nextMessageId(),
         introMessageId, targetMessageId: introMessageId });
-    } else store.emit(scope, { ...context, type: "job.group_declined" });
+    } else emit({ ...context, type: "job.group_declined" });
     const task = store.get(scope).tasks[job.invitation.taskId];
     if (task.handoffId) startRecipientWork(store.get(scope).handoffs[task.handoffId]);
   }
 
   const threadOf = (jobId: string) => store.get(scope).jobs[jobId].threadId;
+  const taskThread = (task: Task) => task.workThreadId ?? threadOf(task.jobId);
 
   function step(taskId: string, stepId: string, status: "active" | "waiting" | "done", note?: string) {
     const task = store.get(scope).tasks[taskId];
     const current = task?.steps.find((item) => item.stepId === stepId);
     if (!current || current.status === "done" || (current.status === status && current.note === note)) return;
-    store.emit(scope, { type: "task.step", taskId, stepId, status, note, experimentId: task.experimentId, threadId: task.workThreadId ?? threadOf(task.jobId) });
+    emit({ type: "task.step", taskId, stepId, status, note, experimentId: task.experimentId, threadId: taskThread(task) });
   }
 
   function completeIfDone(taskId: string) {
@@ -370,38 +522,251 @@ export function createLabDemo({
     const plan = plans.get(taskId);
     if (!task || !plan || task.status === "completed" || task.steps.some((item) => item.status !== "done")) return;
     const assessment = plan.assessment && { ...plan.assessment, recordId: task.experimentId };
-    store.emit(scope, { type: "task.completed", taskId, summary: plan.summary, assessment, experimentId: task.experimentId, threadId: task.workThreadId ?? threadOf(task.jobId) });
+    const summary = plan.summaryFor?.(store.get(scope), task) ?? plan.summary;
+    emit({ type: "task.completed", taskId, summary, assessment, experimentId: task.experimentId, threadId: taskThread(task) });
   }
 
-  /** The recipient of an accepted handoff works through its plan, one observable step at a time. */
+  function say(task: Task, text: string, activity?: string) {
+    emit({ type: "message.agent", messageId: nextMessageId(), from: task.owner, inReplyTo: task.acceptedMessageId, jobId: task.jobId,
+      text, activity, experimentId: task.experimentId, threadId: taskThread(task) });
+  }
+
+  function recordFact(fact: EvidenceFact, threadId: string) {
+    emit({ type: "evidence.fact", fact, experimentId, threadId });
+  }
+
+  const requestOf = (taskId: string) => Object.values(store.get(scope).research).find((r) => r.taskId === taskId);
+
+  // ---- research gate --------------------------------------------------------------------
+
+  /** Role references and project sources are read freely, before any approval. */
+  function inspectLocal(task: Task) {
+    configure();
+    const state = store.get(scope);
+    for (const source of Object.values(state.sources)) {
+      if (source.origin === "project" && source.endpoint !== RESEARCH_QUESTION.endpoint) continue;
+      recordFact({ kind: "consulted", sourceId: source.sourceId, by: task.owner, taskId: task.taskId,
+        relevant: source.endpoint === RESEARCH_QUESTION.endpoint && source.origin !== "hypothesis", reason: consultReason(source) }, taskThread(task));
+    }
+  }
+
+  const consulted = (task: Task) => Object.values(store.get(scope).facts).flatMap((f) =>
+    f.kind === "consulted" && f.taskId === task.taskId ? [f] : []);
+  const localAnswer = (task: Task) => consulted(task).filter((f) => f.relevant).map((f) => f.sourceId);
+
+  async function externalSearch(task: Task, item: WorkStep): Promise<WorkOutcome> {
+    if (localAnswer(task).length) {
+      step(task.taskId, item.id, "done", "ไม่ต้องค้นเพิ่ม · แหล่งในโครงการตอบคำถามได้");
+      return "done";
+    }
+    let request = requestOf(task.taskId);
+    if (!request) {
+      const checked = consulted(task).map((f) => f.sourceId);
+      emit({
+        type: "research.requested", requestId: `${task.jobId}:research:${RESEARCH_QUESTION.endpoint}:${RESEARCH_QUESTION.versionId}`,
+        jobId: task.jobId, taskId: task.taskId, by: task.owner, question: RESEARCH_QUESTION, limit: SEARCH_LIMIT,
+        query: draftQuery(RESEARCH_QUESTION), checked, messageId: nextMessageId(),
+        gap: `เอกสารที่มีพูดถึงการแพ้สัมผัส แต่เราต้องตรวจ${SKIN}ของ${RESEARCH_QUESTION.ingredient}\nขอค้นเอกสารเพิ่มสำหรับสูตร ${RESEARCH_QUESTION.versionId} ไหมครับ?`,
+        experimentId: task.experimentId, threadId: taskThread(task),
+      });
+      request = requestOf(task.taskId)!;
+    }
+    switch (request.status) {
+      case "pending":
+        step(task.taskId, item.id, "waiting", "รอเจ้าของโครงการตอบคำขอค้น");
+        return "wait";
+      case "closed":
+        step(task.taskId, item.id, "done", "ไม่ค้นเพิ่ม · เจ้าของโครงการเลือกใช้ข้อมูลที่มี");
+        return "done";
+      case "completed":
+        step(task.taskId, item.id, "done", request.outcome === "found" ? `พบเอกสาร ${request.searches.at(-1)?.resultIds?.length ?? 0} ฉบับ` : "ค้นแล้วไม่พบเอกสาร");
+        return "done";
+      case "searching":
+        if (searching.has(request.requestId)) return "wait";
+        // Restored mid-search (the page reloaded): report it; the same scope can be retried.
+        emit({ type: "research.search_failed", requestId: request.requestId, attempt: request.attempts, reason: "interrupted", experimentId, threadId: request.threadId });
+        step(task.taskId, item.id, "waiting", "ค้นไม่สำเร็จ · ลองใหม่");
+        return "wait";
+      case "failed":
+        // Only the owner's “ลองใหม่” starts another attempt, with the same approved scope.
+        if (retries.delete(request.requestId)) return runSearch(task, item, request);
+        step(task.taskId, item.id, "waiting", "ค้นไม่สำเร็จ · ลองใหม่");
+        return "wait";
+      case "approved":
+        return runSearch(task, item, request);
+    }
+  }
+
+  /** One search attempt, under the approved scope only. */
+  async function runSearch(task: Task, item: WorkStep, request: ResearchRequest): Promise<WorkOutcome> {
+    const approved = request.decision?.decision === "approve" ? request.decision.scope : undefined;
+    // An approval only covers the exact scope it was given for.
+    if (!approved || scopeKeyOf(approved) !== scopeKeyOf(currentScope(scope.projectId, request))) return "wait";
+    if (!search || searching.has(request.requestId)) return "wait";
+    const attemptNo = request.attempts + 1;
+    searching.add(request.requestId);
+    emit({ type: "research.search_started", requestId: request.requestId, attempt: attemptNo, experimentId, threadId: request.threadId });
+    step(task.taskId, item.id, "active", "กำลังค้นเอกสาร");
+    let results: SourceRecord[];
+    try {
+      results = await search.search({ projectId: scope.projectId, requestId: request.requestId, attempt: attemptNo,
+        query: approved.query, limit: approved.limit, scenario: store.get(scope).scenario ?? DEFAULT_SCENARIO });
+    } catch (error) {
+      searching.delete(request.requestId);
+      const reason = error instanceof SearchError ? error.reason : "unreachable";
+      emit({ type: "research.search_failed", requestId: request.requestId, attempt: attemptNo, reason, experimentId, threadId: request.threadId });
+      step(task.taskId, item.id, "waiting", "ค้นไม่สำเร็จ · ลองใหม่");
+      return "wait";
+    }
+    searching.delete(request.requestId);
+    if (disposed) return "wait";
+    emit({ type: "research.search_completed", requestId: request.requestId, attempt: attemptNo, results: results.slice(0, approved.limit), experimentId, threadId: request.threadId });
+    for (const result of results.slice(0, approved.limit)) {
+      recordFact({ kind: "found", sourceId: result.sourceId, by: task.owner, requestId: request.requestId }, request.threadId);
+    }
+    const found = results.length ? `พบเอกสาร ${results.length} ฉบับ` : "ค้นแล้วไม่พบเอกสาร";
+    step(task.taskId, item.id, "active", found);
+    say(task, results.length
+      ? `${found} (${results.map((r) => r.sourceId).join(", ")}) จะตรวจว่าเอกสารไหนตอบเรื่อง${SKIN}ของ${RESEARCH_QUESTION.ingredient} · ข้อมูลจำลอง`
+      : `ค้นตามขอบเขตที่อนุมัติแล้ว แต่ไม่พบเอกสารที่ใช้ได้ · ข้อมูลจำลอง`, "ค้นเอกสารตามขอบเขตที่อนุมัติ");
+    await pace();
+    step(task.taskId, item.id, "done", found);
+    return "done";
+  }
+
+  /** Decide, per question, which sources answer it; keep the others in the project with a reason. */
+  function screen(task: Task, item: WorkStep): WorkOutcome {
+    const state = store.get(scope);
+    step(task.taskId, item.id, "active", "กำลังตรวจหลักฐาน");
+    const thread = taskThread(task);
+    const request = requestOf(task.taskId);
+    const candidates = [
+      ...localAnswer(task).map((id) => state.sources[id]),
+      ...(request?.outcome === "found" ? (request.searches.at(-1)?.resultIds ?? []).map((id) => state.sources[id]) : []),
+    ].filter(Boolean);
+    const kept: string[] = [];
+    const excluded: string[] = [];
+    for (const source of candidates) {
+      if (source.endpoint === RESEARCH_QUESTION.endpoint && source.passage) {
+        recordFact({ kind: "passage", sourceId: source.sourceId, by: task.owner, taskId: task.taskId, requestId: request?.requestId, passage: source.passage }, thread);
+        kept.push(source.sourceId);
+      } else if (request) {
+        recordFact({ kind: "excluded", sourceId: source.sourceId, by: task.owner, requestId: request.requestId,
+          reason: `${consultReason(source)} จึงไม่ใช้ตอบคำถามนี้ (ยังเก็บไว้ในโครงการ)` }, thread);
+        excluded.push(source.sourceId);
+      }
+    }
+    if (!kept.length) {
+      recordFact({ kind: "insufficient", by: task.owner, versionId: RESEARCH_QUESTION.versionId, endpoint: RESEARCH_QUESTION.endpoint, requestId: request?.requestId,
+        reason: request?.outcome === "use-existing" ? "เจ้าของโครงการเลือกใช้ข้อมูลที่มี และแหล่งที่มีไม่ตอบเรื่องนี้" : "ค้นแล้วไม่พบเอกสารที่ตรงประเด็น" }, thread);
+      say(task, `${SKIN}ของ${RESEARCH_QUESTION.ingredient} สำหรับ ${RESEARCH_QUESTION.versionId}: ข้อมูลไม่พอ`, "ตรวจหลักฐานที่มี");
+      step(task.taskId, item.id, "done", "ข้อมูลไม่พอ");
+      return "done";
+    }
+    say(task, [`${kept.join(", ")} ตรงประเด็น${SKIN} บันทึกข้อความหลักฐานแล้ว`,
+      ...(excluded.length ? [`${excluded.join(", ")} เป็นคนละ endpoint ไม่ใช้กับคำถามนี้แต่ยังเก็บไว้ในโครงการ`] : [])].join(" · ") + " · ข้อมูลจำลอง", "ตรวจหลักฐาน");
+    step(task.taskId, item.id, "done");
+    return "done";
+  }
+
+  /** Reviewing is not using: the reviewer records each decision for the formula version. */
+  function review(task: Task, item: WorkStep, decide: boolean): WorkOutcome {
+    const state = store.get(scope);
+    const received = Object.values(state.facts).filter((f) => f.kind === "handed" && f.to === task.owner && state.handoffs[f.handoffId]?.jobId === task.jobId);
+    const thread = taskThread(task);
+    for (const fact of received) {
+      if (fact.kind !== "handed") continue;
+      if (!decide) recordFact({ kind: "reviewed", sourceId: fact.sourceId, by: task.owner, versionId: RESEARCH_QUESTION.versionId,
+        note: `ข้อความตรงกับ endpoint ${SKIN} และ${RESEARCH_QUESTION.ingredient} ในความเข้มข้นใกล้กับ V1` }, thread);
+      else recordFact({ kind: "used", sourceId: fact.sourceId, by: task.owner, versionId: RESEARCH_QUESTION.versionId,
+        reason: `ตรงกับประเด็น${SKIN}ของ ${RESEARCH_QUESTION.versionId}` }, thread);
+    }
+    if (!received.length) {
+      if (decide) recordFact({ kind: "insufficient", by: task.owner, versionId: RESEARCH_QUESTION.versionId, endpoint: RESEARCH_QUESTION.endpoint,
+        reason: "ไม่ได้รับข้อความหลักฐานด้านผิว" }, thread);
+      step(task.taskId, item.id, "done", "ข้อมูลไม่พอ");
+      return "done";
+    }
+    step(task.taskId, item.id, "done");
+    return "done";
+  }
+
+  async function act(task: Task, item: WorkStep): Promise<WorkOutcome> {
+    switch (item.action) {
+      case "inspect-local": inspectLocal(task); return "done";
+      case "external-search": return externalSearch(task, item);
+      case "screen": return screen(task, item);
+      case "review": return review(task, item, false);
+      case "select": return review(task, item, true);
+      case "record-e01":
+      default: return "done";
+    }
+  }
+
+  /**
+   * The recipient of an accepted handoff works through its plan, one observable step at a
+   * time. Finished steps are skipped, so the same call resumes a task after an approval,
+   * a retry or a page reload.
+   */
   async function runWork(taskId: string, plan: WorkPlan) {
     const task = store.get(scope).tasks[taskId];
-    if (!task || plans.has(taskId)) return;
+    if (!task || task.status === "completed" || working.has(taskId)) return;
+    working.add(taskId);
     plans.set(taskId, plan);
-    store.emit(scope, { type: "task.planned", taskId, steps: plan.steps.map(({ id, label }) => ({ stepId: id, label })), experimentId: task.experimentId, threadId: threadOf(task.jobId) });
-
-    for (const item of plan.steps) {
-      step(taskId, item.id, "active");
-      await pace();
-      if (item.waitFor) {
-        step(taskId, item.id, "waiting", item.waitFor);
+    try {
+      emit({ type: "task.planned", taskId, steps: plan.steps.map(({ id, label }) => ({ stepId: id, label })), experimentId: task.experimentId, threadId: threadOf(task.jobId) });
+      for (const item of plan.steps) {
+        if (disposed) return;
+        const current = () => store.get(scope).tasks[taskId];
+        if (current().steps.find((s) => s.stepId === item.id)?.status === "done") continue;
+        if (item.requiresEvidence && !passagesFor(store.get(scope), task.jobId).length) {
+          step(taskId, item.id, "done", "ข้าม · ข้อมูลไม่พอ");
+          continue;
+        }
+        // The search step shows its own states (waiting for the owner, searching, found).
+        if (item.action !== "external-search") {
+          step(taskId, item.id, "active");
+          await pace();
+        }
+        if (item.waitFor) {
+          step(taskId, item.id, "waiting", item.waitFor);
+          await pace();
+        }
+        if (item.action) {
+          if ((await act(current(), item)) === "wait") return;
+          step(taskId, item.id, "done");
+          await pace();
+          continue;
+        }
+        if (item.handoff) {
+          const childId = startChildHandoff(taskId, item.handoff);
+          parentStep.set(childId, { taskId, stepId: item.id });
+          await deliver(childId, 2);
+          // Not accepted: the step waits for a manual retry, which finishes it (see attempt()).
+          if (store.get(scope).handoffs[childId].status !== "accepted") {
+            step(taskId, item.id, "waiting", "ส่งงานไม่สำเร็จ · รอลองอีกครั้ง");
+            return;
+          }
+          step(taskId, item.id, "done");
+          continue;
+        }
+        step(taskId, item.id, "done");
         await pace();
       }
-      if (item.handoff) {
-        const childId = startChildHandoff(taskId, item.handoff);
-        parentStep.set(childId, { taskId, stepId: item.id });
-        await deliver(childId, 2);
-        // Not accepted: the step waits for a manual retry, which finishes it (see attempt()).
-        if (store.get(scope).handoffs[childId].status !== "accepted") {
-          step(taskId, item.id, "waiting", "ส่งงานไม่สำเร็จ · รอลองอีกครั้ง");
-          return;
-        }
-        continue;
-      }
-      step(taskId, item.id, "done");
-      await pace();
+      completeIfDone(taskId);
+    } finally {
+      working.delete(taskId);
     }
-    completeIfDone(taskId);
+  }
+
+  /** Continue a task from its first unfinished step (after an approval, a retry or a reload). */
+  function resumeTask(taskId: string) {
+    const state = store.get(scope);
+    const task = state.tasks[taskId];
+    if (!task || task.status === "completed") return;
+    const handoff = task.handoffId ? state.handoffs[task.handoffId] : undefined;
+    const plan = plans.get(taskId) ?? (handoff ? planFor(handoff) : null);
+    if (plan) track(runWork(taskId, plan));
   }
 
   function startChildHandoff(parentTaskId: string, next: { to: AgentRole; title: string; stage?: string }) {
@@ -410,7 +775,7 @@ export function createLabDemo({
     const job = state.jobs[parent.jobId];
     const handoffId = `${parent.jobId}:handoff:${parent.owner}->${next.to}${next.stage ? ":" + next.stage : ""}`;
     if (state.handoffs[handoffId]) return handoffId;
-    store.emit(scope, {
+    emit({
       type: "handoff.sent",
       jobId: parent.jobId,
       handoffId,
@@ -434,12 +799,12 @@ export function createLabDemo({
     try {
       for (let i = 0; i < tries; i++) {
         const current = store.get(scope).handoffs[handoffId];
-        if (!current || current.status === "accepted") return;
+        if (!current || current.status === "accepted" || disposed) return;
         const number = current.status === "sending" ? current.attempts : current.attempts + 1;
         if (await attempt(handoffId, number)) return;
       }
       const last = store.get(scope).handoffs[handoffId];
-      store.emit(scope, { type: "handoff.gave_up", handoffId, attempt: last.attempts, experimentId: last.experimentId, threadId: last.threadId });
+      emit({ type: "handoff.gave_up", handoffId, attempt: last.attempts, experimentId: last.experimentId, threadId: last.threadId });
     } finally {
       inFlight.delete(handoffId);
     }
@@ -453,10 +818,10 @@ export function createLabDemo({
     const intent = question && /^(?:ขอ)?ดูข้อมูล(?:ที่มีอยู่)?(?:ครับ|ค่ะ)?$/u.test(text.trim())
       ? { kind: "read" as const } : classifyIntent(text);
     const answerTo = question?.from === agent && intent.kind !== "clarify" ? question.messageId : undefined;
-    store.emit(scope, { type: "message.user", messageId: userMessageId, to: agent, text, answerTo, experimentId, threadId });
+    emit({ type: "message.user", messageId: userMessageId, to: agent, text, answerTo, experimentId, threadId });
 
     if (/คุณเป็นใคร|หน้าที่ของคุณ|ทำหน้าที่อะไร|who are you|your role/i.test(text)) {
-      store.emit(scope, { type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId,
+      emit({ type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId,
         text: ROLE_EN[agent] + " · " + ROLE_SCOPE[agent], experimentId, threadId });
       return { intent: { kind: "read" } };
     }
@@ -468,7 +833,7 @@ export function createLabDemo({
       if (invitations.length === 1 && (accept || /^(?:คุยแยกต่อ|ไม่สร้างกลุ่ม|ไม่สร้าง|ไม่ต้อง|no)$/i.test(answer))) {
         const job = invitations[0];
         decideGroup(job.jobId, accept);
-        store.emit(scope, { type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId,
+        emit({ type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId,
           text: accept ? `สร้างกลุ่ม «${job.title}» แล้ว` : "รับทราบ จะส่งงานต่อในแชตส่วนตัว", experimentId, threadId });
         return { intent, jobId: job.jobId };
       }
@@ -479,7 +844,7 @@ export function createLabDemo({
       const reply = assessment ? `ผลคัดกรองจำลองของ ${assessment.formulaName} จากการทดลองในแชตนี้`
         : intent.kind === "read" ? readReply(intent.subject) : intent.question;
       const activity = intent.kind === "read" ? "ตรวจข้อมูลสูตรของการทดลอง" : "ตรวจประเภทคำขอ";
-      store.emit(scope, { type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId, activity, clarification: intent.kind === "clarify", text: reply, assessment, experimentId, threadId });
+      emit({ type: "message.agent", messageId: nextMessageId(), from: agent, inReplyTo: userMessageId, activity, clarification: intent.kind === "clarify", text: reply, assessment, experimentId, threadId });
       return { intent };
     }
 
@@ -487,7 +852,7 @@ export function createLabDemo({
     const jobId = `${scope.projectId}:${experimentId}:job:${userMessageId}`;
     const taskId = `${scope.projectId}:${experimentId}:task:${userMessageId}`;
     if (owner === agent) {
-      store.emit(scope, { type: "task.started", jobId, taskId, owner, title: intent.title, sourceMessageId: userMessageId, messageId: nextMessageId(), experimentId, threadId });
+      emit({ type: "task.started", jobId, taskId, owner, title: intent.title, sourceMessageId: userMessageId, messageId: nextMessageId(), experimentId, threadId });
       const plan = intent.multiRole
         ? playbook?.({ from: agent, to: owner, title: intent.title })
         : ROLE_WORK[owner];
@@ -496,7 +861,7 @@ export function createLabDemo({
     }
 
     const handoffId = `${scope.projectId}:${experimentId}:handoff:${userMessageId}:${agent}->${owner}`;
-    store.emit(scope, {
+    emit({
       type: "message.agent",
       messageId: nextMessageId(),
       from: agent,
@@ -506,7 +871,7 @@ export function createLabDemo({
       threadId,
     });
     // "Sent" is visible now; delivery continues in the background.
-    store.emit(scope, {
+    emit({
       type: "handoff.sent",
       jobId,
       handoffId,
@@ -540,7 +905,7 @@ export function createLabDemo({
     const from = latest?.owner ?? job.assignees[job.assignees.length - 1];
     const context = { threadId: job.threadId, experimentId: job.experimentId, jobId };
     const messageId = nextMessageId();
-    store.emit(scope, { ...context, type: "message.user", messageId, to: from, text: text.trim() });
+    emit({ ...context, type: "message.user", messageId, to: from, text: text.trim() });
     await pace();
     const step = latest?.steps.find((item) => item.status === "waiting" || item.status === "active");
     const status = latest?.summary || step?.note || step?.label || latest?.title || job.title;
@@ -552,8 +917,65 @@ export function createLabDemo({
       : !requestsUpdate && classifyIntent(text).kind === "commission"
       ? "หากต้องการเปิดงานใหม่ เลือก Agent ในแชตส่วนตัวได้เลย งานนี้ยังติดตามต่อในกลุ่มนี้ได้"
       : `อัปเดตงาน «${job.title}» · ${status}`;
-    store.emit(scope, { ...context, type: "message.agent", messageId: nextMessageId(), from, inReplyTo: messageId, activity: "ตรวจสถานะงานในกลุ่ม", text: reply, assessment });
+    emit({ ...context, type: "message.agent", messageId: nextMessageId(), from, inReplyTo: messageId, activity: "ตรวจสถานะงานในกลุ่ม", text: reply, assessment });
   }
 
-  return { submit, submitGroup, decideGroup, retry, idle, state: () => store.get(scope) };
+  // ---- owner decisions ----------------------------------------------------------------
+
+  /**
+   * The owner answers a pending search request for the scope shown on screen. A repeated or
+   * stale answer changes nothing; only an approval of the current scope lets a search start.
+   */
+  function decideResearch(requestId: string, decision: "approve" | "use-existing", approver: Approver, shown: ResearchScope) {
+    const request = store.get(scope).research[requestId];
+    if (request?.status !== "pending" || !approver.owner) return false;
+    if (scopeKeyOf(shown) !== scopeKeyOf(currentScope(scope.projectId, request))) return false;
+    emit({ type: "research.decided", requestId, decision, approver, scope: shown, experimentId, threadId: request.threadId });
+    if (store.get(scope).research[requestId]?.status === "pending") return false;
+    resumeTask(request.taskId);
+    return true;
+  }
+
+  /** Save an edited draft query. Nothing is sent until the owner approves it. */
+  function editResearchQuery(requestId: string, query: string) {
+    const request = store.get(scope).research[requestId];
+    if (request?.status !== "pending") return;
+    emit({ type: "research.query_edited", requestId, query, experimentId, threadId: request.threadId });
+  }
+
+  /** Retry a failed search with the same approved scope (no new approval, no duplicate sources). */
+  function retryResearch(requestId: string) {
+    const request = store.get(scope).research[requestId];
+    if (request?.status !== "failed" || searching.has(requestId)) return;
+    retries.add(requestId);
+    resumeTask(request.taskId);
+  }
+
+  /**
+   * After a page reload: finish deliveries and steps that were under way. Waiting points
+   * (an unanswered approval, a failed search) stay waiting; nothing is approved or searched
+   * on the owner's behalf, and a search cut off by the reload is reported as failed.
+   */
+  function resume() {
+    const state = store.get(scope);
+    for (const handoff of Object.values(state.handoffs)) {
+      if (handoff.status === "sending" || handoff.status === "retrying") void deliver(handoff.handoffId, 2);
+    }
+    for (const task of Object.values(state.tasks)) {
+      if (task.status === "completed" || !task.handoffId) continue;
+      const handoff = state.handoffs[task.handoffId];
+      const job = state.jobs[task.jobId];
+      if (handoff?.status !== "accepted" || job?.invitation?.status === "pending" && job.invitation.taskId === task.taskId) continue;
+      const request = requestOf(task.taskId);
+      if (request && (request.status === "pending" || request.status === "failed")) continue;
+      resumeTask(task.taskId);
+    }
+  }
+
+  function dispose() {
+    disposed = true;
+  }
+
+  return { submit, submitGroup, decideGroup, retry, idle, configure, decideResearch, editResearchQuery, retryResearch, resume, dispose,
+    state: () => store.get(scope) };
 }

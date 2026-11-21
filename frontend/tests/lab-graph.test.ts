@@ -1,22 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDemoStore, createLabDemo, createMockTransport, DEMO_PLAYBOOK } from "../src/lib/lab-demo/engine.ts";
-import type { DemoScope } from "../src/lib/lab-demo/events.ts";
+import { currentScope, type DemoScope } from "../src/lib/lab-demo/events.ts";
+import { createMockSearchAdapter } from "../src/lib/lab-demo/research.ts";
 import {
   agentNodeId, branchNodeId, buildProjectGraph, emptyExploration, evidenceNodeId, focusAgent, formulaNodeId,
   pathTo, toggleExpanded, visibleNodes, type ProjectGraph,
 } from "../src/lib/lab-graph/model.ts";
 
 const brief = "เปิดโครงการลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด";
+const owner = { id: "guest", label: "เจ้าของโครงการจำลอง", owner: true, simulated: true };
 
-async function study(projectId = "p1", store = createDemoStore()) {
+/** The recorded D01 study. The owner approves the Curator's search unless `approve` is false. */
+async function study(projectId = "p1", store = createDemoStore(), approve = true) {
   const scope: DemoScope = { userId: "guest", projectId, mode: "demo" };
-  const demo = createLabDemo({ store, scope, experimentId: "D01", transport: createMockTransport({ faults: [{ attempt: 1, kind: "ack-lost" }] }), playbook: DEMO_PLAYBOOK });
+  const demo = createLabDemo({ store, scope, experimentId: "D01", transport: createMockTransport({ faults: [{ attempt: 1, kind: "ack-lost" }] }), playbook: DEMO_PLAYBOOK, search: createMockSearchAdapter() });
   const result = await demo.submit("director", brief);
   await demo.idle();
   demo.decideGroup(result.jobId!, true);
   await demo.idle();
-  return { store, scope, state: demo.state() };
+  if (approve) for (const r of Object.values(demo.state().research)) demo.decideResearch(r.requestId, "approve", owner, currentScope(projectId, r));
+  await demo.idle();
+  return { store, scope, state: demo.state(), demo };
 }
 
 const edge = (g: ProjectGraph, source: string, target: string) => g.edges.find((e) => e.source === source && e.target === target);
@@ -82,7 +87,7 @@ test("focusing the Chemist reproduces Chemist → E01 → Curator → source in 
   parents = visibleNodes(g, view);
   const doc = g.children[documents][0];
   assert.deepEqual(pathTo(parents, doc).map((id) => g.nodes[id].label),
-    ["Formulation Chemist", "หลักฐานที่ใช้", "E01 · เบส B", "Chemical Data Curator", "เอกสารต้นทาง", "บันทึกตัวอย่าง E01"]);
+    ["Formulation Chemist", "หลักฐานที่ใช้", "E01 · เบส B", "Chemical Data Curator", "เอกสารต้นทาง", "บันทึกระเบียน E01"]);
 });
 
 test("collapsing one branch keeps E01 while another expanded branch still reaches it", async () => {
@@ -111,6 +116,49 @@ test("repeated events add no nodes and projects never share a graph", async () =
   assert.equal(other.recordedHandoffs, 0);
   assert.ok(Object.keys(other.nodes).every((id) => id.startsWith("p2:")));
   assert.equal(Object.values(other.nodes).filter((n) => n.kind !== "agent").length, 0);
+});
+
+test("approved research: violet sources, the exclusion kept on the question, and V1 → SRC-02 → passage", async () => {
+  const g = buildProjectGraph((await study()).state);
+  const src = (id: string) => `p1:source:${id}`;
+  assert.equal(g.nodes[src("SRC-01")].origin, "project");
+  assert.equal(g.nodes[src("SRC-02")].origin, "project");
+  assert.equal(g.nodes[src("REF-01")].origin, "baseline");
+  assert.equal(g.nodes[src("H1")].origin, "hypothesis");
+  const research = Object.values(g.nodes).find((n) => n.kind === "research")!;
+  assert.equal(research.status, "approved");
+  const toSrc01 = edge(g, research.id, src("SRC-01"));
+  assert.equal(toSrc01?.decision, "excluded");
+  assert.equal(edge(g, research.id, src("SRC-02"))?.decision, undefined);
+  const v1 = formulaNodeId("p1", "D01", "V1");
+  assert.equal(edge(g, src("SRC-02"), v1)?.verb, "ใช้กับ V1");
+  assert.equal(edge(g, src("SRC-01"), v1), undefined);
+  assert.ok(g.children[v1].includes(src("SRC-02")));
+  const passage = g.children[src("SRC-02")].find((id) => g.nodes[id].kind === "passage");
+  assert.ok(passage && g.nodes[passage].summary?.includes("ตัวอย่างจำลอง"));
+  assert.ok(g.nodes[src("SRC-01")].facts.some((f) => f.label === "เหตุผลที่ไม่ใช้" && /การแพ้สัมผัส/.test(f.value)));
+  assert.ok(g.nodes[src("SRC-02")].message, "returns to the request in Lab");
+  // The Curator's focus shows the request already open, with what it found.
+  const parents = visibleNodes(g, focusAgent(g, emptyExploration(), "researcher"));
+  assert.ok(parents.has(src("SRC-01")) && parents.has(src("SRC-02")));
+});
+
+test("pending research: nothing found yet, no 'used' edge, and building the graph changes nothing", async () => {
+  const { state } = await study("p1", createDemoStore(), false);
+  const before = JSON.stringify(state);
+  const g = buildProjectGraph(state);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(Object.values(g.nodes).filter((n) => n.origin === "project").length, 0);
+  assert.equal(Object.values(g.nodes).find((n) => n.kind === "research")?.status, "pending");
+  assert.ok(!g.edges.some((e) => e.verb.startsWith("ใช้กับ")));
+});
+
+test("receiving a handoff never makes a source 'used for V1' without a review", async () => {
+  const { store, scope, state } = await study("p1", createDemoStore(), false);
+  store.apply(scope, { type: "evidence.fact", fact: { kind: "used", sourceId: "REF-01", by: "analyst", versionId: "V1", reason: "x" },
+    eventId: "p1:evt-used-early", sequence: 9000, projectId: "p1", experimentId: "D01", threadId: "t", source: "demo" });
+  assert.equal(Object.keys(store.get(scope).facts).length, Object.keys(state.facts).length);
+  assert.ok(!buildProjectGraph(store.get(scope)).edges.some((e) => e.verb.startsWith("ใช้กับ")));
 });
 
 test("an unanswered study shows only what was recorded", async () => {

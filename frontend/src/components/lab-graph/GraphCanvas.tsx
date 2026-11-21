@@ -35,7 +35,7 @@ type EntityData = {
   onToggle: (id: string) => void
   onHover: (id: string | null) => void
 }
-type VerbData = { verb: string; tone: EdgeTone; sourceRadius: number; targetRadius: number; arrow: boolean }
+type VerbData = { verb: string; tone: EdgeTone; sourceRadius: number; targetRadius: number; arrow: boolean; decision?: "excluded" }
 
 /** Movement (px) beyond which a press on a node is a drag rather than a click. */
 const DRAG_THRESHOLD = 4
@@ -92,6 +92,7 @@ const EntityNode = memo(function EntityNode({ data }: NodeProps<EntityData>) {
   )
   return (
     <div className="lab-graph-node" data-kind={node.kind} data-size={size} data-selected={selected || undefined} data-path={onPath || undefined}
+      data-origin={node.origin} data-status={node.status}
       data-hover={hover} onPointerEnter={enter} onPointerLeave={leave}
       style={isAgent ? { width: RADIUS[size] * 2, height: RADIUS[size] * 2 } : undefined}>
       <Handle type="target" position={Position.Top} style={hidden} isConnectable={false} />
@@ -104,7 +105,7 @@ const EntityNode = memo(function EntityNode({ data }: NodeProps<EntityData>) {
             <Image src={`/images/lab-agents/${node.role}-Photoroom.png`} alt="" width={512} height={768} unoptimized draggable={false} />
           </span>
         ) : <span className="lab-graph-dot" aria-hidden="true" />}
-        <span className="lab-graph-label">{node.label}</span>
+        <span className="lab-graph-label">{node.label}{node.sublabel && <small className="lab-graph-sublabel">{node.sublabel}</small>}</span>
       </button>
       {toggle}
     </div>
@@ -136,7 +137,7 @@ function VerbEdge({ id, sourceX, sourceY, targetX, targetY, data, markerEnd }: E
   return <>
     <BaseEdge id={id} path={path} markerEnd={data?.arrow ? markerEnd : undefined} />
     {data?.verb && <EdgeLabelRenderer>
-      <div className="lab-graph-verb" data-tone={data.tone}
+      <div className="lab-graph-verb" data-tone={data.tone} data-decision={data.decision}
         style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 10}px)` }}>{data.verb}</div>
     </EdgeLabelRenderer>}
   </>
@@ -235,9 +236,10 @@ function Canvas(props: Props) {
     const accent = tone === 'hot' || tone === 'path'
     return {
       id: e.id, source: e.source, target: e.target, type: 'verb', focusable: false,
-      animated: !reducedMotion, className: `lab-graph-edge is-${tone}`,
+      // An excluded source stays on the canvas as a still, dashed relationship.
+      animated: !reducedMotion && !e.decision, className: `lab-graph-edge is-${tone}${e.decision ? ` is-${e.decision}` : ''}`,
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: accent ? '#0f8f7e' : '#9aa5b1' },
-      data: { verb: e.verb, tone, arrow: Boolean(e.verb), sourceRadius: RADIUS[sizes.get(e.source) ?? 'dot'], targetRadius: RADIUS[sizes.get(e.target) ?? 'dot'] },
+      data: { verb: e.verb, tone, decision: e.decision, arrow: Boolean(e.verb), sourceRadius: RADIUS[sizes.get(e.source) ?? 'dot'], targetRadius: RADIUS[sizes.get(e.target) ?? 'dot'] },
     }
   }), [visibleEdges, hover, pathEdges, sizes, reducedMotion])
 

@@ -12,6 +12,7 @@
 import { demoJobTitle } from "./intent.ts";
 
 import type { ChatAssessment } from "./chat-assessment.ts";
+import { scopeKeyOf, type Approver, type Endpoint, type ResearchQuestion, type ResearchScope, type Scenario, type SourceRecord } from "./research.ts";
 
 export type AgentRole = "director" | "researcher" | "formulator" | "analyst" | "evaluator";
 
@@ -79,7 +80,94 @@ export type LabEvent =
   | (Base & { type: "task.planned"; taskId: string; steps: { stepId: string; label: string }[] })
   /** One step changes state. `done` is final; `waiting` carries what the step waits for. */
   | (Base & { type: "task.step"; taskId: string; stepId: string; status: "active" | "waiting" | "done"; note?: string })
-  | (Base & { type: "task.completed"; taskId: string; summary: string; assessment?: ChatAssessment });
+  | (Base & { type: "task.completed"; taskId: string; summary: string; assessment?: ChatAssessment })
+  /** A demo run starts: its scenario and the sources the project already holds. */
+  | (Base & { type: "run.configured"; scenario: Scenario; sources: SourceRecord[] })
+  /** Local sources were not enough: ask the project owner before searching outside the project. */
+  | (Base & {
+      type: "research.requested";
+      requestId: string;
+      jobId: string;
+      taskId: string;
+      by: AgentRole;
+      question: ResearchQuestion;
+      query: string;
+      limit: number;
+      /** Why the available sources do not answer the question (shown as the chat message). */
+      gap: string;
+      /** Sources checked inside the project before asking. */
+      checked: string[];
+      messageId: string;
+    })
+  /** The owner edited the draft query. It still needs explicit approval. */
+  | (Base & { type: "research.query_edited"; requestId: string; query: string })
+  /** The owner's answer, bound to the exact scope shown. */
+  | (Base & { type: "research.decided"; requestId: string; decision: "approve" | "use-existing"; approver: Approver; scope: ResearchScope })
+  | (Base & { type: "research.search_started"; requestId: string; attempt: number })
+  /** Transport failure (not a scientific outcome); the same approved scope can be retried. */
+  | (Base & { type: "research.search_failed"; requestId: string; attempt: number; reason: "unreachable" | "interrupted" })
+  | (Base & { type: "research.search_completed"; requestId: string; attempt: number; results: SourceRecord[] })
+  /** One recorded fact about a source, a question or a formula version. */
+  | (Base & { type: "evidence.fact"; fact: EvidenceFact });
+
+/**
+ * Separate facts, never inferred from one another: finding a document, handing it over,
+ * reviewing it and using it for a formula version are recorded one by one.
+ */
+export type EvidenceFact =
+  | { kind: "consulted"; sourceId: string; by: AgentRole; taskId: string; relevant: boolean; reason: string }
+  | { kind: "found"; sourceId: string; by: AgentRole; requestId: string }
+  | { kind: "passage"; sourceId: string; by: AgentRole; taskId: string; requestId?: string; passage: string }
+  | { kind: "excluded"; sourceId: string; by: AgentRole; requestId: string; reason: string }
+  | { kind: "handed"; sourceId: string; from: AgentRole; to: AgentRole; handoffId: string }
+  | { kind: "reviewed"; sourceId: string; by: AgentRole; versionId: string; note: string }
+  | { kind: "used"; sourceId: string; by: AgentRole; versionId: string; reason: string }
+  | { kind: "insufficient"; by: AgentRole; versionId: string; endpoint: Endpoint; requestId?: string; reason: string };
+
+export type RecordedFact = EvidenceFact & { factId: string; eventId: string; sequence: number };
+
+export function factId(fact: EvidenceFact) {
+  switch (fact.kind) {
+    case "consulted": return `consulted|${fact.sourceId}|${fact.taskId}`;
+    case "found": return `found|${fact.sourceId}|${fact.requestId}`;
+    case "passage": return `passage|${fact.sourceId}|${fact.taskId}`;
+    case "excluded": return `excluded|${fact.sourceId}|${fact.requestId}`;
+    case "handed": return `handed|${fact.sourceId}|${fact.handoffId}`;
+    case "reviewed": return `reviewed|${fact.sourceId}|${fact.versionId}`;
+    case "used": return `used|${fact.sourceId}|${fact.versionId}`;
+    case "insufficient": return `insufficient|${fact.versionId}|${fact.endpoint}`;
+  }
+}
+
+export type ResearchStatus = "pending" | "approved" | "searching" | "failed" | "completed" | "closed";
+
+export type ResearchRequest = {
+  requestId: string;
+  jobId: string;
+  taskId: string;
+  threadId: string;
+  messageId: string;
+  experimentId: string;
+  by: AgentRole;
+  question: ResearchQuestion;
+  query: string;
+  limit: number;
+  gap: string;
+  checked: string[];
+  status: ResearchStatus;
+  decision?: { decision: "approve" | "use-existing"; approver: Approver; scope: ResearchScope; eventId: string };
+  /** Search attempts made under the approved scope (retries keep the same scope). */
+  attempts: number;
+  searches: { attempt: number; status: "running" | "failed" | "completed"; reason?: string; resultIds?: string[] }[];
+  /** found: the search returned documents · no-evidence: it returned none · use-existing: the owner declined. */
+  outcome?: "found" | "no-evidence" | "use-existing";
+};
+
+/** The scope a request shows right now (what an approval must match). */
+export function currentScope(projectId: string, request: ResearchRequest): ResearchScope {
+  return { projectId, requestId: request.requestId, ingredient: request.question.ingredient, endpoint: request.question.endpoint,
+    versionId: request.question.versionId, limit: request.limit, query: request.query };
+}
 
 export type HandoffStatus = "sending" | "retrying" | "failed" | "accepted";
 
@@ -143,7 +231,9 @@ export type ChatMessage =
   /** Left in the origin thread when its job moves to the group. */
   | { kind: "pointer"; messageId: string; threadId: string; jobId: string; experimentId: string; targetThreadId: string; targetMessageId: string; sequence: number }
   /** First group message of a promoted job: where it came from and who is responsible. */
-  | { kind: "job-intro"; messageId: string; threadId: string; jobId: string; experimentId: string; fromThreadId: string; assignees: AgentRole[]; sequence: number };
+  | { kind: "job-intro"; messageId: string; threadId: string; jobId: string; experimentId: string; fromThreadId: string; assignees: AgentRole[]; sequence: number }
+  /** An agent asks the owner to approve a search. Its live state is read from `research[requestId]`. */
+  | { kind: "research"; messageId: string; threadId: string; from: AgentRole; requestId: string; jobId: string; text: string; sequence: number };
 
 /** `private`: one agent's thread with the user (a second assignee may join). `group`: one per project. */
 export type Thread = { threadId: string; kind: "private" | "group"; experimentId: string; participants: AgentRole[] };
@@ -162,10 +252,16 @@ export type LabDemoState = {
   /** Vials and formula nodes arrive in later milestones; kept here so counts are observable now. */
   vials: Record<string, never>;
   formulaNodes: Record<string, never>;
+  /** The demo configuration of this run (set once per run). */
+  scenario?: Scenario;
+  /** Every source in the project, once each: baseline, discovered and hypotheses. */
+  sources: Record<string, SourceRecord>;
+  research: Record<string, ResearchRequest>;
+  facts: Record<string, RecordedFact>;
 };
 
 export function initialState(projectId: string): LabDemoState {
-  return { projectId, seen: [], log: [], messages: [], threads: {}, handoffs: {}, tasks: {}, jobs: {}, vials: {}, formulaNodes: {} };
+  return { projectId, seen: [], log: [], messages: [], threads: {}, handoffs: {}, tasks: {}, jobs: {}, vials: {}, formulaNodes: {}, sources: {}, research: {}, facts: {} };
 }
 
 export const groupThreadId = (projectId: string) => `${projectId}:group`;
@@ -320,7 +416,8 @@ function applyEvent(state: LabDemoState, event: LabEvent): LabDemoState {
       if (!task || !step || step.status === "done" || task.status === "completed") return state;
       if (step.status === event.status && step.note === event.note) return state;
       const steps = task.steps.map((item) => item.stepId === step.stepId
-        ? { ...item, status: event.status, note: event.status === "done" ? undefined : event.note }
+        // A finished step may say how it finished (skipped, nothing found); waiting notes do not carry over.
+        ? { ...item, status: event.status, note: event.note }
         : item);
       return { ...state, tasks: { ...state.tasks, [task.taskId]: { ...task, steps, status: "working" } } };
     }
@@ -346,6 +443,82 @@ function applyEvent(state: LabDemoState, event: LabEvent): LabDemoState {
       if (job?.invitation?.status !== "pending") return state;
       return { ...state, jobs: { ...state.jobs, [job.jobId]: { ...job, invitation: { ...job.invitation, status: "declined" } } } };
     }
+    case "run.configured": {
+      if (state.scenario) return state;
+      const sources = { ...state.sources };
+      for (const source of event.sources) sources[source.sourceId] ??= source;
+      return { ...state, scenario: event.scenario, sources };
+    }
+
+    case "research.requested": {
+      if (state.research[event.requestId]) return state;
+      const request: ResearchRequest = {
+        requestId: event.requestId, jobId: event.jobId, taskId: event.taskId, threadId: event.threadId, messageId: event.messageId,
+        experimentId: event.experimentId, by: event.by, question: event.question, query: event.query, limit: event.limit,
+        gap: event.gap, checked: event.checked, status: "pending", attempts: 0, searches: [],
+      };
+      return {
+        ...state,
+        research: { ...state.research, [request.requestId]: request },
+        messages: [...state.messages, { kind: "research", messageId: event.messageId, threadId: event.threadId, from: event.by,
+          requestId: event.requestId, jobId: event.jobId, text: event.gap, sequence: event.sequence }],
+      };
+    }
+
+    case "research.query_edited": {
+      const request = state.research[event.requestId];
+      const query = event.query.trim();
+      // Only a draft that is still waiting can change; a decided scope never does.
+      if (request?.status !== "pending" || !query || query === request.query) return state;
+      return { ...state, research: { ...state.research, [request.requestId]: { ...request, query } } };
+    }
+
+    case "research.decided": {
+      const request = state.research[event.requestId];
+      // One answer per question, from the owner, for exactly the scope on screen.
+      if (request?.status !== "pending" || !event.approver.owner) return state;
+      if (scopeKeyOf(event.scope) !== scopeKeyOf(currentScope(state.projectId, request))) return state;
+      const decision = { decision: event.decision, approver: event.approver, scope: event.scope, eventId: event.eventId };
+      return { ...state, research: { ...state.research, [request.requestId]: event.decision === "approve"
+        ? { ...request, status: "approved", decision }
+        : { ...request, status: "closed", decision, outcome: "use-existing" } } };
+    }
+
+    case "research.search_started": {
+      const request = state.research[event.requestId];
+      // A search runs only under an approval, once per attempt.
+      if (!request || request.decision?.decision !== "approve" || (request.status !== "approved" && request.status !== "failed")) return state;
+      if (event.attempt !== request.attempts + 1) return state;
+      return { ...state, research: { ...state.research, [request.requestId]: { ...request, status: "searching", attempts: event.attempt,
+        searches: [...request.searches, { attempt: event.attempt, status: "running" }] } } };
+    }
+
+    case "research.search_failed":
+    case "research.search_completed": {
+      const request = state.research[event.requestId];
+      if (request?.status !== "searching" || event.attempt !== request.attempts) return state;
+      const failed = event.type === "research.search_failed";
+      const searches = request.searches.map((s) => s.attempt !== event.attempt ? s : failed
+        ? { ...s, status: "failed" as const, reason: event.reason }
+        : { ...s, status: "completed" as const, resultIds: event.results.map((r) => r.sourceId) });
+      if (failed) return { ...state, research: { ...state.research, [request.requestId]: { ...request, status: "failed", searches } } };
+      // The same document found again (a retry, another question) stays one source.
+      const sources = { ...state.sources };
+      for (const result of event.results) sources[result.sourceId] ??= { ...result, origin: "project", foundBy: request.by, requestId: request.requestId };
+      return { ...state, sources, research: { ...state.research, [request.requestId]: { ...request, status: "completed", searches,
+        outcome: event.results.length ? "found" : "no-evidence" } } };
+    }
+
+    case "evidence.fact": {
+      const fact = event.fact;
+      const id = factId(fact);
+      if (state.facts[id]) return state;
+      if (fact.kind !== "insufficient" && !state.sources[fact.sourceId]) return state;
+      // “Used for this version” needs an explicit review of the same source for the same version.
+      if (fact.kind === "used" && !state.facts[`reviewed|${fact.sourceId}|${fact.versionId}`]) return state;
+      return { ...state, facts: { ...state.facts, [id]: { ...fact, factId: id, eventId: event.eventId, sequence: event.sequence } } };
+    }
+
     case "job.promoted": {
       const job = state.jobs[event.jobId];
       if (!job || job.promoted || job.invitation?.status !== "pending") return state;
@@ -376,5 +549,8 @@ export function counts(state: LabDemoState) {
     pointers: state.messages.filter((m) => m.kind === "pointer").length,
     vials: Object.keys(state.vials).length,
     formulaNodes: Object.keys(state.formulaNodes).length,
+    researchRequests: Object.keys(state.research).length,
+    searches: Object.values(state.research).reduce((n, r) => n + r.attempts, 0),
+    sources: Object.keys(state.sources).length,
   };
 }

@@ -25,6 +25,10 @@
 .lab-graph-shell .lab-graph-edge.is-hot .react-flow__edge-path { stroke: var(--graph-accent); stroke-width: 2.2; }
 .lab-graph-shell .lab-graph-edge.is-hot.animated .react-flow__edge-path { animation-duration: 0.5s; }
 .lab-graph-shell .react-flow__edge.is-faded { opacity: 0.14; }
+/* A source excluded from one question: still and dashed, ending in “ไม่ใช้กับคำถามนี้”. */
+.lab-graph-shell .lab-graph-edge.is-excluded .react-flow__edge-path { stroke: #94a3b8; stroke-dasharray: 5 5; animation: none; }
+.lab-graph-verb[data-decision='excluded'] { color: #64748b; }
+.lab-graph-verb[data-decision='excluded']::before { content: '✕ '; }
 
 /* Hover preview: the node and its one-hop neighbours stay clear; everything else fades. */
 .lab-graph-node > .lab-graph-hit,
@@ -69,6 +73,51 @@
 .lab-graph-node[data-path] .lab-graph-dot,
 .lab-graph-node[data-selected] .lab-graph-dot { background: var(--graph-accent); }
 .lab-graph-hit:hover .lab-graph-dot { transform: scale(1.2); }
+
+/* Sources keep their colour on hover and selection; a teal ring marks focus instead. */
+.lab-graph-node[data-origin] .lab-graph-dot { width: 16px; height: 16px; }
+.lab-graph-node[data-origin='baseline'] .lab-graph-dot { background: #2f6fe4 !important; }
+.lab-graph-node[data-origin='project'] .lab-graph-dot { background: #8b4fd6 !important; }
+.lab-graph-node[data-origin='hypothesis'] .lab-graph-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  background: transparent !important;
+  border: 2px solid #d99a0b;
+  transform: rotate(45deg);
+}
+.lab-graph-node[data-origin='hypothesis'] .lab-graph-hit:hover .lab-graph-dot,
+.lab-graph-node[data-origin='hypothesis'][data-hover='self'] .lab-graph-dot { transform: rotate(45deg) scale(1.2); }
+.lab-graph-node[data-origin][data-selected] .lab-graph-dot,
+.lab-graph-node[data-origin][data-path] .lab-graph-dot,
+.lab-graph-node[data-origin][data-hover='self'] .lab-graph-dot { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--graph-accent); }
+
+/* An outside-search request: a ring that says where the owner's decision stands. */
+.lab-graph-node[data-kind='research'] .lab-graph-dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  background: #fff !important;
+  border: 2.5px solid var(--graph-accent);
+  color: var(--graph-accent);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.lab-graph-node[data-kind='research'] .lab-graph-dot::after { content: '✓'; }
+.lab-graph-node[data-kind='research'][data-status='pending'] .lab-graph-dot { border-color: #d97706; color: #b45309; }
+.lab-graph-node[data-kind='research'][data-status='pending'] .lab-graph-dot::after { content: '?'; }
+.lab-graph-node[data-kind='research'][data-status='failed'] .lab-graph-dot { border-color: #e11d48; color: #be123c; }
+.lab-graph-node[data-kind='research'][data-status='failed'] .lab-graph-dot::after { content: '!'; }
+.lab-graph-node[data-kind='research'][data-status='declined'] .lab-graph-dot,
+.lab-graph-node[data-kind='research'][data-status='empty'] .lab-graph-dot { border-color: #94a3b8; color: #64748b; }
+.lab-graph-node[data-kind='research'][data-status='declined'] .lab-graph-dot::after,
+.lab-graph-node[data-kind='research'][data-status='empty'] .lab-graph-dot::after { content: '–'; }
+.lab-graph-node[data-kind='research'][data-selected] .lab-graph-dot,
+.lab-graph-node[data-kind='research'][data-hover='self'] .lab-graph-dot { box-shadow: 0 0 0 3px var(--graph-accent-soft); }
+.lab-graph-node[data-kind='passage'] .lab-graph-dot { width: 12px; height: 12px; border-radius: 3px; background: #c4b5fd !important; }
+.lab-graph-sublabel { display: block; font-size: 11px; font-weight: 400; color: #64748b; }
 
 .lab-graph-label {
   position: absolute;
@@ -229,6 +278,28 @@
   box-shadow: 0 4px 16px rgb(15 23 42 / 0.08);
   font-size: 14px;
 }
+
+.lab-graph-legend {
+  position: absolute;
+  left: 16px;
+  bottom: 68px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: calc(100% - 32px);
+  padding: 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 12px;
+  color: #334155;
+}
+.lab-graph-legend li { display: flex; align-items: center; gap: 6px; }
+.lab-graph-legend span { width: 11px; height: 11px; border-radius: 999px; }
+.lab-graph-legend span[data-origin='baseline'] { background: #2f6fe4; }
+.lab-graph-legend span[data-origin='project'] { background: #8b4fd6; }
+.lab-graph-legend span[data-origin='hypothesis'] { width: 9px; height: 9px; border-radius: 1px; border: 2px solid #d99a0b; transform: rotate(45deg); }
 
 @keyframes lab-graph-in {
   from { opacity: 0; transform: scale(0.85); }

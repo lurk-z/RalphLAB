@@ -194,6 +194,11 @@ export default function ProjectGraphView({ projectId, tabs, backHref, requestedA
         <div className="relative min-w-0 flex-1">
           <GraphCanvas graph={graph} parents={parents} positions={positions} expanded={expanded} focus={exploration.focus}
             selected={exploration.selected} path={path} camera={camera} reducedMotion={reducedMotion} onSelect={select} onToggle={toggle} onMove={move} />
+          {Object.values(graph.nodes).some((n) => n.origin) && <ul className="lab-graph-legend" aria-label="คำอธิบายสีแหล่งข้อมูล">
+            <li><span aria-hidden="true" data-origin="baseline" />แหล่งตั้งต้น</li>
+            <li><span aria-hidden="true" data-origin="project" />ค้นเพิ่มในโครงการ</li>
+            <li><span aria-hidden="true" data-origin="hypothesis" />สมมติฐาน</li>
+          </ul>}
           {graph.recordedHandoffs === 0 && demo.ready && (
             <div className="lab-graph-empty" role="status">
               <p className="font-semibold text-slate-900">ยังไม่มีเหตุการณ์ของ {graph.experimentId} ในโครงการนี้</p>

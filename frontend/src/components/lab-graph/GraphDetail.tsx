@@ -6,6 +6,7 @@ import type { GraphNode, MessageRef } from '@/lib/lab-graph/model'
 const KIND_LABEL: Record<GraphNode['kind'], string> = {
   agent: 'Agent', branch: 'สาขา', formula: 'สูตร', evidence: 'หลักฐาน', result: 'ผลคัดกรอง',
   decision: 'ข้อสรุป', query: 'คำค้น', document: 'เอกสารต้นทาง', missing: 'ยังไม่มีข้อมูล',
+  source: 'รายละเอียดแหล่งข้อมูล', research: 'คำขอค้นเอกสาร', passage: 'ข้อความหลักฐาน',
 }
 
 export default function GraphDetail({ node, isFocus, onClose, onSelect, onFocusAgent, onOpenMessage, onOpenChat }: {

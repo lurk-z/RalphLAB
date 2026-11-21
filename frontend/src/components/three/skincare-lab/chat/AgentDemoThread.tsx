@@ -11,6 +11,7 @@ import { currentTaskStep, pendingClarifications } from '@/lib/lab-demo/agent-sta
 import { messageJobId } from '@/lib/lab-demo/conversations'
 import { AgentFace, UserFace } from './DemoConversations'
 import MessageMeta from './MessageMeta'
+import ResearchRequestCard from './ResearchRequestCard'
 import type { AgentDemo } from './useAgentDemo'
 
 const STATUS: Record<HandoffStatus, { label: string; className: string; Icon: typeof CircleCheck }> = {
@@ -191,6 +192,16 @@ export default function AgentDemoThread({ demo, threadId, job, highlightId, onOp
           </div> : invitation?.status === 'accepted'
             ? <button type="button" className="py-1 text-xs text-teal-700 hover:underline" onClick={() => onOpenGroup(message.jobId)}>เปิดข้อความในกลุ่ม →</button>
             : <p className="text-xs text-slate-500">คุยงานต่อในแชตส่วนตัว</p>}
+        </SenderMessage>
+      </article>
+    }
+    if (message.kind === 'research') {
+      const request = demo.state.research[message.requestId]
+      return <article key={message.messageId} {...common} className={`${common.className} lab-chat-message text-sm leading-7`}>
+        <SenderMessage role={message.from} first={showSpeaker} label={job?.experimentId}>
+          <p className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{message.text}</p>
+          {request && <ResearchRequestCard demo={demo} request={request} />}
+          <MessageMeta text={message.text} time={times.get(message.sequence)} />
         </SenderMessage>
       </article>
     }

@@ -40,6 +40,7 @@ function trace(log: LabEvent[]) {
       case "task.planned": return `${e.sequence} task.planned ${e.taskId.split(":").at(-1)} ${e.steps.length}`;
       case "task.step": return `${e.sequence} task.step ${e.stepId} ${e.status}`;
       case "task.completed": return `${e.sequence} task.completed ${e.taskId.split(":").at(-1)}`;
+      default: return `${e.sequence} ${e.type}`;
     }
   });
 }
@@ -221,7 +222,7 @@ test("Researcher receives the handoff in private and the approved group links to
   assert.deepEqual(job.assignees, ["analyst", "director", "researcher"]);
   assert.equal(job.threadId, groupId);
   assert.equal(job.originThreadId, privateId);
-  assert.deepEqual(counts(state), { handoffs: 2, tasks: 2, acceptances: 2, handoffLines: 2, groupThreads: 1, pointers: 1, vials: 0, formulaNodes: 0 });
+  assert.deepEqual(counts(state), { handoffs: 2, tasks: 2, acceptances: 2, handoffLines: 2, groupThreads: 1, pointers: 1, vials: 0, formulaNodes: 0, researchRequests: 0, searches: 0, sources: 0 });
 
   assert.deepEqual(state.threads[privateId].participants, ["analyst"]);
   const inThread = (id: string) => state.messages.filter((m) => m.threadId === id).map((m) => m.kind === "agent" || m.kind === "acceptance" ? `${m.kind}:${m.from}` : m.kind);

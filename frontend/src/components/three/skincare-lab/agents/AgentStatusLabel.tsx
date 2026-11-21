@@ -37,6 +37,7 @@ export default function AgentStatusLabel({ agent, status, onSelect }: {
         {status.kind === 'question' ?
           <button type="button" className="pointer-events-auto grid size-8 place-items-center bg-transparent text-lg font-bold text-red-700 focus-visible:outline focus-visible:outline-2"
             aria-label={`เปิดคำถามจาก ${ROLE_LABEL[role]} · ${status.label}`} title={status.label}
+            data-message-id={status.messageId} data-request-id={status.requestId}
             onPointerDown={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}
             onClick={event => { event.stopPropagation(); onSelect?.(role, status.threadId, status.messageId) }}>
             1

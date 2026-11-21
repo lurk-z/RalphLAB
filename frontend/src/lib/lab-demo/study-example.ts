@@ -3,6 +3,8 @@ import { demoAssessment, type ChatAssessment } from './chat-assessment.ts'
 
 export type Version = 'V1' | 'V2-A'
 export const BRIEF = 'D01 · ลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด คงสาร A 5% งบเพิ่มสองรุ่น เดโมนี้ให้ดำเนินการในขอบเขต หากต้องแก้สารที่ล็อกให้หยุดถามผู้ใช้'
+/** The D01 brief a user sends to the Study Lead (also sent by the Lab demo entry). */
+export const STUDY_BRIEF = 'เปิดโครงการลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด'
 export const DECISION = 'V2-A ผ่านเกณฑ์ผิวจำลอง แต่หลักฐานแพ้สัมผัสและพิษเฉียบพลันยังไม่พอ พักเพื่อทดสอบเพิ่มเติม เหลืองบหนึ่งรุ่น หากแยก V2-B ให้เริ่มจาก V1'
 export const RESULTS: Record<Version, ChatAssessment> = {
   V1: demoAssessment,

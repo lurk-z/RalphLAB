@@ -12,11 +12,13 @@ import type { AgentRole, ChatMessage, Handoff, LabDemoState, LabEvent, Task } fr
 import { groupThreadId } from '../lab-demo/events.ts'
 import { ROLE_EN, ROLE_TH } from '../lab-demo/roles.ts'
 import { HANDOFFS } from '../lab-demo/study-example.ts'
+import { ENDPOINT_TH, type SourceOrigin } from '../lab-demo/research.ts'
 import { D01_FIXTURES, type StudyFixtures } from './fixtures.ts'
 
 export const AGENT_ORDER: AgentRole[] = ['director', 'formulator', 'analyst', 'researcher', 'evaluator']
 
 export type NodeKind = 'agent' | 'branch' | 'formula' | 'evidence' | 'result' | 'decision' | 'query' | 'document' | 'missing'
+  | 'source' | 'research' | 'passage'
 export type BranchKey = 'received' | 'created' | 'sent' | 'used' | 'results' | 'queries' | 'documents'
 
 export const BRANCH_LABEL: Record<BranchKey, string> = {
@@ -43,6 +45,12 @@ export const VERB = {
   opened: 'เปิดอ่าน',
   searched: 'ค้นหา',
   concluded: 'สรุป',
+  consulted: 'ตรวจ',
+  requested: 'ขอค้น',
+  found: 'พบ',
+  excluded: 'ไม่ใช้กับคำถามนี้',
+  recorded: 'บันทึกข้อความ',
+  reviewed: 'ตรวจแล้ว',
 } as const
 
 export type Fact = { label: string; value: string; link?: string }
@@ -53,6 +61,12 @@ export type GraphNode = {
   id: string
   kind: NodeKind
   label: string
+  /** Second line under the label (e.g. a request's question). */
+  sublabel?: string
+  /** Sources: baseline (blue), discovered in this project (violet) or a hypothesis (diamond). */
+  origin?: SourceOrigin
+  /** Research requests: their status, for the node's look. */
+  status?: 'pending' | 'approved' | 'failed' | 'declined' | 'empty'
   role?: AgentRole
   branch?: BranchKey
   /** The agent a branch or agent node belongs to. */
@@ -73,6 +87,8 @@ export type GraphEdge = {
   /** Empty for the structural link between an agent and its own branch. */
   verb: string
   eventIds: string[]
+  /** A decision kept on the relationship (a source excluded from one question). */
+  decision?: 'excluded'
 }
 
 export type ProjectGraph = {
@@ -112,12 +128,12 @@ export function buildProjectGraph(state: LabDemoState, fixtures: StudyFixtures =
     nodes[node.id] = node
     return node
   }
-  const link = (source: string, target: string, verb: string, eventIds: (string | undefined)[] = []) => {
+  const link = (source: string, target: string, verb: string, eventIds: (string | undefined)[] = [], decision?: GraphEdge['decision']) => {
     const id = `${source}>${verb}>${target}`
     const ids = eventIds.filter((e): e is string => Boolean(e))
     const existing = edges.get(id)
     if (existing) existing.eventIds = [...new Set([...existing.eventIds, ...ids])]
-    else edges.set(id, { id, source, target, verb, eventIds: [...new Set(ids)] })
+    else edges.set(id, { id, source, target, verb, eventIds: [...new Set(ids)], decision })
   }
   const reveal = (parent: string, child: string) => {
     const list = (children[parent] ??= [])
@@ -360,6 +376,9 @@ export function buildProjectGraph(state: LabDemoState, fixtures: StudyFixtures =
     if (versions.length) node.lists.push({ title: 'สูตรที่ใช้หลักฐานนี้', items: versions.map((v) => ({ label: v.label, note: v.summary, link: v.id })) })
   }
 
+  // 5 · Sources, outside-search requests and the separate evidence facts.
+  addResearch()
+
   // Agent → branch structure (non-empty branches only), then supplied evidence.
   for (const role of AGENT_ORDER) {
     const agent = agentNodeId(p, role)
@@ -371,15 +390,145 @@ export function buildProjectGraph(state: LabDemoState, fixtures: StudyFixtures =
       const branchNode = nodes[id]
       if (!branchNode.lists.length) branchNode.lists.push({ title: 'รายการ', items: children[id].map((c) => ({ label: nodes[c].label, link: c })) })
     }
-    const supplied = [...(children[agent] ?? [])].filter((c) => nodes[c].kind === 'evidence')
-    if (supplied.length) children[agent] = [...children[agent].filter((c) => nodes[c].kind !== 'evidence'), ...supplied]
+    // Branches first, then what the agent holds directly: requests, supplied evidence, sources.
+    const order = (id: string) => ({ branch: 0, research: 1, evidence: 2, source: 3 } as Record<string, number>)[nodes[id].kind] ?? 4
+    if (children[agent]) children[agent] = [...children[agent]].sort((a, b) => order(a) - order(b))
   }
 
   // A version lists its child versions first, then what supports it.
-  const rank = (id: string) => ({ formula: 0, evidence: 1, result: 2 } as Record<string, number>)[nodes[id].kind] ?? 3
+  const rank = (id: string) => ({ formula: 0, evidence: 1, source: 2, result: 3 } as Record<string, number>)[nodes[id].kind] ?? 4
   for (const node of Object.values(nodes)) if (node.kind === 'formula' && children[node.id]) children[node.id].sort((a, b) => rank(a) - rank(b))
 
   return { projectId: p, experimentId: x, nodes, edges: [...edges.values()], children, recordedHandoffs: handoffs.length }
+
+  function addResearch() {
+    const sourceId = (id: string) => `${p}:source:${id}`
+    const researchId = (id: string) => `${p}:research:${id}`
+    const passageId = (source: string, taskId: string) => `${p}:passage:${source}:${taskId}`
+    const facts = Object.values(state.facts).sort((a, b) => a.sequence - b.sequence)
+    const request = (id?: string) => (id ? state.research[id] : undefined)
+    const ORIGIN_TH: Record<SourceOrigin, string> = { baseline: 'แหล่งตั้งต้น', project: 'ค้นเพิ่มในโครงการ', hypothesis: 'สมมติฐาน' }
+
+    for (const source of Object.values(state.sources)) {
+      const id = sourceId(source.sourceId)
+      const label = source.sourceId.startsWith('BASE-') ? source.title : `${source.sourceId} · ${source.title}`
+      add({ id, kind: 'source', origin: source.origin, label, demo: true, heading: label,
+        sublabel: source.origin === 'project' ? ENDPOINT_TH[source.endpoint] : undefined,
+        facts: [
+          { label: 'ประเภท', value: ORIGIN_TH[source.origin] },
+          { label: 'ประเด็น', value: ENDPOINT_TH[source.endpoint] },
+          { label: 'ที่มา', value: source.publisher },
+          ...(source.foundBy ? [{ label: 'ผู้ค้นพบ', value: ROLE_EN[source.foundBy], link: agentNodeId(p, source.foundBy) }] : []),
+          { label: 'ประเภทข้อมูล', value: 'ข้อมูลจำลอง' },
+        ],
+        lists: [], message: messageRef(request(source.requestId)?.messageId ?? '', 'researcher', request(source.requestId)?.jobId), eventIds: [] })
+    }
+
+    for (const r of Object.values(state.research)) {
+      const id = researchId(r.requestId)
+      const endpoint = ENDPOINT_TH[r.question.endpoint]
+      const status: GraphNode['status'] = r.status === 'pending' ? 'pending' : r.status === 'failed' ? 'failed'
+        : r.status === 'closed' ? 'declined' : r.outcome === 'no-evidence' ? 'empty' : 'approved'
+      const label = { pending: 'รออนุมัติคำค้น', approved: 'อนุมัติคำค้นแล้ว', failed: 'ค้นไม่สำเร็จ · ลองใหม่', declined: 'ใช้ข้อมูลที่มี · ไม่ค้น', empty: 'ค้นแล้ว · ข้อมูลไม่พอ' }[status!]
+      add({ id, kind: 'research', status, label, sublabel: `${endpoint} · ${r.question.ingredient}`, demo: true,
+        heading: `คำขอค้น · ${endpoint} · ${r.question.ingredient}`, summary: r.gap.replace(/\n/g, ' '),
+        facts: [
+          { label: 'สูตร', value: r.question.versionId, link: nodes[formulaNodeId(p, x, r.question.versionId)] ? formulaNodeId(p, x, r.question.versionId) : undefined },
+          { label: 'คำค้นที่ส่ง', value: r.decision?.decision === 'approve' ? r.decision.scope.query : `${r.query} (ยังไม่ส่ง)` },
+          { label: 'ขอบเขต', value: `เอกสารสาธารณะไม่เกิน ${r.limit} ฉบับ` },
+          { label: 'ผู้ตัดสินใจ', value: r.decision ? `${r.decision.approver.label}${r.decision.approver.simulated ? ' (จำลอง)' : ''}` : 'ยังไม่ตอบ' },
+          { label: 'ค้นแล้ว', value: `${r.attempts} ครั้ง` },
+          { label: 'ประเภทข้อมูล', value: 'ข้อมูลจำลอง' },
+        ],
+        lists: [], message: messageRef(r.messageId, r.by, r.jobId), eventIds: r.decision ? [r.decision.eventId] : [] })
+      const by = agentNodeId(p, r.by)
+      link(by, id, VERB.requested)
+      reveal(by, id)
+      reveal(id, by)
+      for (const result of r.searches.at(-1)?.resultIds ?? []) {
+        const s = sourceId(result)
+        const excluded = facts.find((f) => f.kind === 'excluded' && f.sourceId === result && f.requestId === r.requestId)
+        // The decision about this question lives on this relationship, not on the document.
+        link(id, s, excluded ? VERB.excluded : VERB.found, [excluded?.eventId], excluded ? 'excluded' : undefined)
+        reveal(id, s)
+        reveal(s, id)
+      }
+    }
+
+    for (const f of facts) {
+      const s = f.kind === 'insufficient' ? '' : sourceId(f.sourceId)
+      switch (f.kind) {
+        case 'consulted': {
+          const agent = agentNodeId(p, f.by)
+          link(agent, s, VERB.consulted, [f.eventId])
+          reveal(agent, s)
+          break
+        }
+        case 'passage': {
+          const id = passageId(f.sourceId, f.taskId)
+          add({ id, kind: 'passage', label: 'ข้อความหลักฐาน', sublabel: f.sourceId, demo: true, heading: `ข้อความหลักฐาน · ${f.sourceId}`, summary: f.passage,
+            facts: [{ label: 'บันทึกโดย', value: ROLE_EN[f.by], link: agentNodeId(p, f.by) }, { label: 'จากเอกสาร', value: f.sourceId, link: s },
+              { label: 'ประเภทข้อมูล', value: 'ข้อมูลจำลอง (ข้อความตัวอย่าง)' }],
+            lists: [], eventIds: [f.eventId] })
+          link(s, id, VERB.recorded, [f.eventId])
+          reveal(s, id)
+          break
+        }
+        case 'reviewed': {
+          const agent = agentNodeId(p, f.by)
+          link(agent, s, VERB.reviewed, [f.eventId])
+          reveal(agent, s)
+          reveal(s, agent)
+          break
+        }
+        case 'used': {
+          const formula = formulaNodeId(p, x, f.versionId)
+          if (!nodes[formula]) break
+          link(s, formula, `ใช้กับ ${f.versionId}`, [f.eventId])
+          reveal(s, formula)
+          reveal(formula, s)
+          break
+        }
+      }
+    }
+
+    // Each source's history, one fact per line, and the reason it was used or not.
+    const at = (f: (typeof facts)[number]) => {
+      switch (f.kind) {
+        case 'consulted': return { label: `ตรวจในโครงการ · ${ROLE_EN[f.by]}`, note: f.reason }
+        case 'found': {
+          const r = request(f.requestId)
+          return { label: `อนุมัติคำค้น · ${r?.decision?.approver.label ?? 'เจ้าของโครงการ'}`, note: `ค้นพบ · ${ROLE_EN[f.by]}`, link: researchId(f.requestId) }
+        }
+        case 'passage': return { label: `บันทึกข้อความ · ${ROLE_EN[f.by]}`, link: passageId(f.sourceId, f.taskId) }
+        case 'excluded': return { label: `ไม่ใช้กับคำถามนี้ · ${ROLE_EN[f.by]}`, note: f.reason, link: researchId(f.requestId) }
+        case 'handed': return { label: `ส่งต่อ · ${ROLE_EN[f.from]} → ${ROLE_EN[f.to]}` }
+        case 'reviewed': return { label: `ตรวจแล้ว · ${ROLE_EN[f.by]}`, note: f.note }
+        case 'used': return { label: `ใช้กับ ${f.versionId} · ${ROLE_EN[f.by]}`, note: f.reason, link: formulaNodeId(p, x, f.versionId) }
+        default: return null
+      }
+    }
+    for (const source of Object.values(state.sources)) {
+      const node = nodes[sourceId(source.sourceId)]
+      const own = facts.filter((f) => f.kind !== 'insufficient' && f.sourceId === source.sourceId)
+      const timeline = own.map(at).filter((i): i is NonNullable<ReturnType<typeof at>> => Boolean(i))
+      if (timeline.length) node.lists.push({ title: 'ลำดับเหตุการณ์', items: timeline })
+      const used = own.find((f) => f.kind === 'used')
+      const excluded = own.filter((f) => f.kind === 'excluded')
+      if (used?.kind === 'used') node.facts.splice(1, 0, { label: 'เหตุผลที่เลือก', value: used.reason })
+      for (const e of excluded) if (e.kind === 'excluded') node.facts.splice(1, 0, { label: 'เหตุผลที่ไม่ใช้', value: e.reason })
+      if (source.passage) node.lists.push({ title: 'ข้อความตัวอย่าง · ข้อมูลจำลอง', items: [{ label: source.passage }] })
+    }
+
+    // A formula version shows which sources it uses for the question, or that data is missing.
+    for (const f of facts) {
+      if (f.kind !== 'used' && f.kind !== 'insufficient') continue
+      const formula = nodes[formulaNodeId(p, x, f.versionId)]
+      if (!formula) continue
+      if (f.kind === 'used') formula.facts.splice(formula.facts.length - 1, 0, { label: 'หลักฐานที่ใช้', value: `${f.sourceId} · ${ROLE_EN[f.by]}`, link: sourceId(f.sourceId) })
+      else formula.facts.splice(formula.facts.length - 1, 0, { label: ENDPOINT_TH[f.endpoint], value: `ข้อมูลไม่พอ · ${f.reason}` })
+    }
+  }
 
   function pushItem(branchId: string, item: DetailList['items'][number]) {
     const node = nodes[branchId]
@@ -436,6 +585,8 @@ export function focusAgent(graph: ProjectGraph, exploration: Exploration, role: 
   open.add(id)
   for (const b of graph.children[id] ?? []) {
     const node = graph.nodes[b]
+    // An agent's search requests open to show what they found and what was excluded.
+    if (node.kind === 'research') open.add(b)
     if (node.kind !== 'branch') continue
     open.add(b)
     if (node.branch === 'used') for (const e of graph.children[b] ?? []) open.add(e)

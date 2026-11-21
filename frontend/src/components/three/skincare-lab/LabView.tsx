@@ -11,7 +11,9 @@ import LabAgentChat from './chat/LabAgentChat'
 import { useLabAgentChat, type ChatFormula } from './chat/useLabAgentChat'
 import { useAgentDemo } from './chat/useAgentDemo'
 import { chatAgentStatuses, demoAgentStatuses } from '@/lib/lab-demo/agent-status'
-import type { DemoScreen } from '@/lib/lab-demo/conversations'
+import { messageJobId, type DemoScreen } from '@/lib/lab-demo/conversations'
+import { groupThreadId } from '@/lib/lab-demo/events'
+import ResearchDemoPanel from './chat/ResearchDemoPanel'
 import { loadLabScreen, saveLabScreen, saveReadingThread, viewKey } from '@/lib/lab-graph/view-memory'
 
 // WebGL scene — client-only.
@@ -57,8 +59,14 @@ export default function LabView({ embedded = false, projectId = null, formula, o
     : chatAgentStatuses(chat.threads, chat.pending, chat.activity),
     [agentDemoOn, agentDemo.state, chat.threads, chat.pending, chat.activity])
   const handleReady = useCallback(() => setReady(true), [])
+  const demoState = useRef(agentDemo.state)
+  demoState.current = agentDemo.state
   const selectAgent = useCallback((role: Role | null, threadId?: string, highlightId?: string) => {
-    setDemoScreen({ kind: 'private', threadId, highlightId })
+    // A question asked in the project group (e.g. the Curator's search request) opens there.
+    const state = demoState.current
+    const message = highlightId ? state.messages.find((m) => m.messageId === highlightId) : undefined
+    const jobId = message && threadId === groupThreadId(state.projectId) ? messageJobId(state, message) : undefined
+    setDemoScreen(jobId ? { kind: 'group', jobId, highlightId } : { kind: 'private', threadId, highlightId })
     setSampleOpen(0)
     setAgent(role)
     setCameraAgent(role)
@@ -70,6 +78,11 @@ export default function LabView({ embedded = false, projectId = null, formula, o
   }, [])
   const stopFollowing = useCallback(() => setCameraAgent(null), [])
   useEffect(() => saveLabScreen(memoryKey, { agent, screen: demoScreen }), [memoryKey, agent, demoScreen])
+  // The run continues where a reload left it, once the user is in the Lab.
+  const resumeRun = agentDemo.resume
+  const runKey = agentDemo.scopeKey
+  const ready_ = agentDemo.ready
+  useEffect(() => { if (ready_) resumeRun() }, [runKey, ready_, resumeRun])
   const rememberThread = useCallback((role: Role, threadId: string) => saveReadingThread(memoryKey, role, threadId), [memoryKey])
 
   useEffect(() => {
@@ -156,6 +169,10 @@ export default function LabView({ embedded = false, projectId = null, formula, o
                 <option value="">แชตกับ Agent</option>
                 {(Object.keys(ROLE_LABEL) as Role[]).map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
               </select>
+              {agentDemoOn && <ResearchDemoPanel demo={agentDemo}
+                onOpenStudyLead={() => selectAgent('director')}
+                onOpenRequest={(role, threadId, messageId) => selectAgent(role, threadId, messageId)}
+                onReset={() => selectAgent(null)} />}
             </div>
           )}
         </div>

@@ -50,7 +50,12 @@ test('two invitations for the same agent open their exact private messages until
   assert.equal(secondBadge.threadId, demo.state().jobs[second.jobId!].invitation?.threadId)
   demo.decideGroup(second.jobId!, true)
   await demo.idle()
-  assert.deepEqual(demo.statuses(), {})
+  // Both invitations are answered; what remains is the Curator's own request to search outside
+  // the project, which opens its exact request message.
+  const open = demo.statuses()
+  assert.deepEqual(Object.keys(open), ['researcher'])
+  const research = Object.values(demo.state().research).find(r => open.researcher?.kind === 'question' && r.requestId === open.researcher.requestId)
+  assert.ok(open.researcher?.kind === 'question' && research && open.researcher.messageId === research.messageId)
 })
 
 test('API labels exist only while that thread is pending and use the latest public activity', () => {

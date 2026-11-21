@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { listConversations, messageJobId, privateThreadId, transcriptPreview } from "../src/lib/lab-demo/conversations.ts";
 import { createDemoStore, createLabDemo, createMockTransport, DEMO_PLAYBOOK } from "../src/lib/lab-demo/engine.ts";
-import { initialState, type DemoScope } from "../src/lib/lab-demo/events.ts";
+import { currentScope, initialState, type DemoScope } from "../src/lib/lab-demo/events.ts";
+import { createMockSearchAdapter } from "../src/lib/lab-demo/research.ts";
 import { demoJobTitle } from "../src/lib/lab-demo/intent.ts";
 import { createChatArchive } from "../src/lib/lab-demo/chat-history.ts";
 
@@ -64,7 +65,7 @@ test("inbox previews show message content and preserve names written by the user
 
 test("two promoted tasks in one project retain separate titles, previews, members and replies", async () => {
   const store = createDemoStore();
-  const engine = createLabDemo({ scope, store, experimentId: exp, transport: createMockTransport(), playbook: DEMO_PLAYBOOK });
+  const engine = createLabDemo({ scope, store, experimentId: exp, transport: createMockTransport(), playbook: DEMO_PLAYBOOK, search: createMockSearchAdapter() });
   const first = await engine.submit("analyst", "ช่วยทำคลีนเซอร์สำหรับผิวเป็นสิวง่ายให้หน่อย");
   await engine.idle();
   const second = await engine.submit("evaluator", "ช่วยสร้างครีมสำหรับผิวแห้งให้หน่อย");
@@ -73,6 +74,11 @@ test("two promoted tasks in one project retain separate titles, previews, member
   engine.decideGroup(first.jobId!, true);
   await engine.idle();
   engine.decideGroup(second.jobId!, true);
+  await engine.idle();
+  // Each job's Curator asks before searching outside the project; approve both to finish.
+  for (const r of Object.values(engine.state().research)) {
+    engine.decideResearch(r.requestId, "approve", { id: "guest", label: "เจ้าของโครงการจำลอง", owner: true, simulated: true }, currentScope(scope.projectId, r));
+  }
   await engine.idle();
   const inbox = () => listConversations(engine.state(), exp);
   const groups = inbox().filter((c) => c.kind === "group");

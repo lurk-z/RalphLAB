@@ -3,7 +3,8 @@ import type { AgentRole, ChatMessage, LabDemoState, Task } from './events.ts'
 export type AgentStatus =
   | { kind: 'thinking' }
   | { kind: 'working'; label: string }
-  | { kind: 'question'; threadId: string; messageId: string; label: string }
+  /** An unanswered question (red “1”). `requestId` when it is an approval request. */
+  | { kind: 'question'; threadId: string; messageId: string; label: string; requestId?: string; jobId?: string }
 
 export type AgentStatuses = Partial<Record<AgentRole, AgentStatus>>
 
@@ -44,13 +45,16 @@ export function demoAgentStatuses(state: LabDemoState): AgentStatuses {
   }
 
   const questions = [...pendingClarifications(state.messages).values(), ...state.messages.filter(
-    (m): m is Extract<ChatMessage, { kind: 'group-invite' }> =>
-      m.kind === 'group-invite' && state.jobs[m.jobId]?.invitation?.status === 'pending'
+    (m): m is Extract<ChatMessage, { kind: 'group-invite' | 'research' }> =>
+      (m.kind === 'group-invite' && state.jobs[m.jobId]?.invitation?.status === 'pending') ||
+      // An approval request stays open until the owner answers it, whatever the agent is doing.
+      (m.kind === 'research' && state.research[m.requestId]?.status === 'pending')
   )].sort((a, b) => a.sequence - b.sequence)
   for (const q of questions) {
     // Show the oldest unanswered question first, even when this agent also has a running task.
     if (statuses[q.from]?.kind !== 'question') {
-      statuses[q.from] = { kind: 'question', threadId: q.threadId, messageId: q.messageId, label: q.text }
+      statuses[q.from] = { kind: 'question', threadId: q.threadId, messageId: q.messageId, label: q.text.split('\n')[0],
+        requestId: q.kind === 'research' ? q.requestId : undefined, jobId: q.jobId }
     }
   }
   return statuses
