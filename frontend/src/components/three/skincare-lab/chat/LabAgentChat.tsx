@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import Image from 'next/image'
-import { ArrowUp, Check, ChevronDown, CircleCheck, FlaskConical, History, Mic, Network, Search, SquarePen, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowUp, Check, ChevronDown, CircleCheck, FlaskConical, History, Mic, Network, Search, SquarePen, Trash2 } from 'lucide-react'
 import AssessmentReply from './AssessmentReply'
 import { assessmentText } from '@/lib/lab-demo/chat-assessment'
 import { ASSISTANT_TYPING_INTERVAL_MS, assistantTypingFrames } from '@/lib/assistant-typing'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ROLE_LABEL } from '../agents/roles'
+import { ROLE_LABEL, roleGuide } from '../agents/roles'
 import type { Role } from '../agents/workflow'
 import { MAX_QUESTION_LENGTH, makeChatId, type ChatFormula, type Thread, type useLabAgentChat } from './useLabAgentChat'
 import { useChatMicrophone } from './useChatMicrophone'
@@ -21,7 +21,7 @@ import MessageMeta from './MessageMeta'
 import ChatActivity, { elapsedLabel } from './ChatActivity'
 import type { AgentDemo } from './useAgentDemo'
 
-import { ROLE_EN, ROLE_SCOPE } from '@/lib/lab-demo/roles'
+import { ROLE_SCOPE } from '@/lib/lab-demo/roles'
 
 const shortDate = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const iconButton = 'grid size-8 shrink-0 place-items-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 disabled:opacity-40 [&>svg]:size-4'
@@ -77,7 +77,11 @@ function ChatMessages({ messages }: { messages: Thread['messages'] }) {
   ))
 }
 
-export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onClose, onModeChange, progress, sampleOpen, agentDemo, screen, navigate, onOpenGraph, onReadingThread }: {
+export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onClose, onModeChange, progress, sampleOpen, agentDemo, screen, navigate, drafts, setDrafts, lastThreads, chatScope, onOpenGraph, onReadingThread }: {
+  drafts: Record<string, string>
+  setDrafts: Dispatch<SetStateAction<Record<string, string>>>
+  lastThreads: Map<string, string | null>
+  chatScope: string
   agent: Role
   formula?: ChatFormula
   chat: ReturnType<typeof useLabAgentChat>
@@ -95,11 +99,10 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   /** Reports the private history thread on screen, so Lab can reopen it. */
   onReadingThread?: (agent: Role, threadId: string) => void
 }) {
-  const [selectedId, setSelectedId] = useState<string | null | undefined>(screen.kind === 'private' ? screen.threadId : undefined)
+  const [selectedId, setSelectedId] = useState<string | null | undefined>(() => (screen.kind === 'private' ? screen.threadId : undefined) ?? lastThreads.get(chatScope))
   const [openMenu, setOpenMenu] = useState<'agents' | 'history' | null>(null)
   const [historyQuery, setHistoryQuery] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [input, setInput] = useState('')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const historySearchRef = useRef<HTMLInputElement>(null)
   const shouldFocusInput = useRef(false)
@@ -109,8 +112,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   const openedAt = useRef(typeof performance === 'undefined' ? 0 : performance.now())
   const job = screen.kind === 'group' ? agentDemo?.state.jobs[screen.jobId] : undefined
   const [highlightId, setHighlightId] = useState<string | null>(null)
-  const role = { english: ROLE_EN[agent], scope: ROLE_SCOPE[agent] }
-  const name = role.english
+  const name = ROLE_LABEL[agent]
   const workflowProject = agentDemo?.state.projectId
   const experimentId = agentDemo?.experimentId
   const saved = agentDemo?.history.saved
@@ -135,6 +137,20 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   })).filter(({ title }) => title.toLocaleLowerCase().includes(query))
   const thread = selectedId === undefined ? history[0] : history.find((item) => item.id === selectedId)
   const linkedThread = screen.kind === 'private' && screen.threadId === selectedId ? screen.threadId : undefined
+  const draftKey = JSON.stringify([chatScope, job?.jobId ?? selectedId ?? thread?.id ?? null])
+  const input = drafts[draftKey] ?? ''
+  function setInput(update: SetStateAction<string>) {
+    setDrafts(current => {
+      const next = { ...current }
+      const text = typeof update === 'function' ? update(current[draftKey] ?? '') : update
+      if (text) next[draftKey] = text
+      else delete next[draftKey]
+      return next
+    })
+  }
+  useEffect(() => {
+    if (screen.kind === 'private' && selectedId !== undefined) lastThreads.set(chatScope, selectedId)
+  }, [chatScope, lastThreads, screen.kind, selectedId])
   const demoThread = job?.threadId ?? (agentDemo ? thread?.id ?? linkedThread ?? '' : '')
   const hasDemoMessages = agentDemo?.state.messages.some((m) => m.threadId === demoThread && (!job || messageJobId(agentDemo.state, m) === job.jobId))
   const legacyPrefix = workflowProject && experimentId ? privateThreadId(workflowProject, experimentId, agent) + ':legacy:' : ''
@@ -207,7 +223,6 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
   function pickThread(id: string | null) {
     setSelectedId(id)
     setOpenMenu(null)
-    if (id === null || id !== thread?.id) setInput('')
     if (id === null) inputRef.current?.focus()
   }
 
@@ -244,7 +259,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
     setSelectedId(target.id)
     followScroll.current = true
     if (!retry) setInput('')
-    void chat.send(agent, ROLE_LABEL[agent], role.scope, target, text, formula, retry)
+    void chat.send(agent, name, ROLE_SCOPE[agent], target, text, formula, retry)
   }
 
   if (agentDemo && screen.kind === 'inbox') return <DemoInbox demo={agentDemo} history={allHistory} onAgent={onSelectAgent}
@@ -260,7 +275,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
         <p className="px-2 pb-1 pt-1.5 text-xs font-semibold text-slate-600">เปิดกราฟของ</p>
         {job.assignees.map((member) => <button key={member} type="button" onClick={() => onOpenGraph(member)}
           className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600">
-          <Portrait agent={member} /><span className="flex-1">{ROLE_EN[member]}</span>
+          <Portrait agent={member} /><span className="flex-1">{ROLE_LABEL[member]}</span>
         </button>)}
       </PopoverContent>
     </Popover>
@@ -272,9 +287,21 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
     </PopoverTrigger>
     <button className={iconButton} type="button" aria-label="เริ่มแชตใหม่" title="เริ่มแชตใหม่" onClick={() => pickThread(null)}><SquarePen /></button>
   </>
+  const starter = agentDemo
+    ? agent === 'analyst' ? 'ช่วยตรวจสี่ด้านของ V1' : 'เปิดโครงการลดข้อกังวลด้านการระคายเคืองของสูตรทำความสะอาด'
+    : chat.demo ? 'ตอนนี้ทีมกำลังทำอะไรอยู่?' : roleGuide[agent].question
 
   return (
     <section aria-label={`แชตกับ ${job?.title ?? name}`} className="flex h-full min-h-0 flex-col bg-white text-slate-900">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 border-b bg-slate-50 px-3 text-xs">
+        <button type="button" onClick={onClose} className="inline-flex min-h-11 items-center gap-1 font-medium text-teal-800"><ArrowLeft className="size-4" />กลับห้องแล็บ</button>
+        {chat.demo ? <span>คำตอบจำลอง</span> :
+          <select aria-label="โหมดแชต" value={agentDemo ? 'demo' : 'api'} disabled={busy || listening}
+            onChange={event => onModeChange(event.target.value === 'api' ? 'api' : 'demo')}
+            className="min-h-11 max-w-full bg-transparent font-medium text-slate-700">
+            <option value="demo">ทดลองการทำงานของทีม · คำตอบจำลอง</option><option value="api">ถามผู้ช่วย AI</option>
+          </select>}
+      </div>
       <Popover open={openMenu === 'history'} onOpenChange={(open) => {
         setOpenMenu((menu) => open ? 'history' : menu === 'history' ? null : menu)
         if (open) {
@@ -284,7 +311,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
       }}>
         <PopoverAnchor asChild>
           <div className="shrink-0">
-          {agentDemo ? <DemoChatHeader agent={agent} job={job} viewer={agentDemo.viewer} navigate={navigate} onClose={onClose} actions={<>{graphAction}{job ? undefined : historyActions}</>} /> :
+          {agentDemo ? <DemoChatHeader agent={agent} job={job} viewer={agentDemo.viewer} navigate={navigate} actions={<>{graphAction}{job ? undefined : historyActions}</>} /> :
           <header className="flex h-14 shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-3">
             <Popover open={openMenu === 'agents'} onOpenChange={(open) => setOpenMenu((menu) => open ? 'agents' : menu === 'agents' ? null : menu)}>
               <PopoverTrigger asChild>
@@ -295,13 +322,13 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
                 </button>
               </PopoverTrigger>
               <PopoverContent aria-label="เลือก Agent" align="start" sideOffset={8} className="lab-chat-scroll z-[85] max-h-[var(--radix-popover-content-available-height)] w-56 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border-slate-200 bg-white p-1.5 text-slate-900 shadow-lg data-[state=closed]:animate-none motion-reduce:animate-none">
-                {(Object.keys(ROLE_EN) as Role[]).map((option) => (
+                {(Object.keys(ROLE_LABEL) as Role[]).map((option) => (
                   <button key={option} type="button" onClick={() => {
                     setOpenMenu(null)
                     onSelectAgent(option)
                   }} aria-current={option === agent ? 'true' : undefined} className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 aria-[current=true]:bg-teal-50">
                     <Portrait agent={option} />
-                    <span className="flex-1">{ROLE_EN[option]}</span>
+                    <span className="flex-1">{ROLE_LABEL[option]}</span>
                     {option === agent && <Check aria-hidden="true" className="size-4 shrink-0 text-teal-700" />}
                   </button>
                 ))}
@@ -309,7 +336,6 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
             </Popover>
             {graphAction}
             {historyActions}
-            <button className={iconButton} type="button" aria-label="ปิดแชต" title="ปิดแชต" onClick={onClose}><X /></button>
           </header>}
           </div>
         </PopoverAnchor>
@@ -356,8 +382,14 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
       }}>
         <div ref={contentRef} className="flex min-h-full flex-col px-4 py-5 sm:px-5">
           {(agentDemo ? !hasDemoMessages && !priorMessages.length : !thread?.messages.length) && (
-            <div className="my-auto flex justify-center">
-              <Image src="/icons/logo-new.png" alt="" width={176} height={176} className="h-auto max-w-full select-none opacity-20" draggable={false} />
+            <div className="my-auto flex flex-col items-center gap-2 py-3 text-center">
+              {!job && <Portrait agent={agent} />}
+              <p className="text-sm font-semibold text-slate-800">{job?.title ?? name}</p>
+              <p className="text-sm text-slate-600">{job ? 'ส่งข้อความถึงทีมในช่องนี้' : 'พิมพ์คำถามด้านล่างเพื่อเริ่มสนทนา'}</p>
+              {!job && !input && <button type="button" disabled={!chatReady || listening} onClick={() => {
+                setInput(starter)
+                inputRef.current?.focus()
+              }} className="min-h-11 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900 hover:bg-teal-100">{starter}</button>}
             </div>
           )}
           {agentDemo && priorMessages.length > 0 && <ChatMessages key={`archive-${thread?.id}`} messages={priorMessages} />}
@@ -370,15 +402,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
       </div>
 
       <form className="shrink-0 px-3 pb-3 pt-1 sm:px-4" onSubmit={(event) => { event.preventDefault(); send() }}>
-        {chat.demo && !agentDemo && <p className="mb-1 px-2 text-[11px] text-slate-500">โหมดเดโม · คำตอบจำลอง</p>}
-        {!chat.demo && <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          {agentDemo && <DemoCounts demo={agentDemo} />}
-          <select aria-label="โหมดแชต" value={agentDemo ? 'demo' : 'api'} disabled={busy || listening}
-            onChange={event => onModeChange(event.target.value === 'api' ? 'api' : 'demo')}
-            className="ml-auto rounded px-1 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-teal-600">
-            <option value="demo">เดโมส่งงาน</option><option value="api">แชตผ่าน API</option>
-          </select>
-        </div>}
+        {agentDemo && <DemoCounts demo={agentDemo} />}
         {error && <p role="status" className="mb-1 text-xs text-rose-800">{error}</p>}
         <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
           {listening ? (
@@ -393,6 +417,7 @@ export default function LabAgentChat({ agent, formula, chat, onSelectAgent, onCl
             <>
               <textarea ref={inputRef} value={input} rows={2} maxLength={MAX_QUESTION_LENGTH} aria-label={`ข้อความถึง ${job?.title ?? name}`} placeholder="พิมพ์ข้อความ…" onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                if (window.matchMedia('(pointer: coarse), (max-width: 719px)').matches) return
                 event.preventDefault()
                 send()
               }} className="lab-chat-scroll block h-12 w-full resize-none border-0 bg-transparent px-2 py-1.5 text-sm leading-5 text-slate-900 caret-gray-500 outline-none placeholder:text-slate-500" />

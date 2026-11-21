@@ -2,16 +2,17 @@
 
 import { useState, type ReactNode } from 'react'
 import Image from 'next/image'
-import { ArrowLeft, ChevronDown, Search, Users, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Search, Users } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { listConversations, transcriptPreview, type DemoScreen } from '@/lib/lab-demo/conversations'
 import { ROLE_EN } from '@/lib/lab-demo/engine'
+import { ROLE_TH } from '@/lib/lab-demo/roles'
 import type { AgentRole, Job } from '@/lib/lab-demo/events'
 import type { AgentDemo } from './useAgentDemo'
 import type { Transcript } from '@/lib/lab-demo/chat-history'
 
-const tool = 'grid size-9 shrink-0 place-items-center rounded-full text-slate-600 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 [&>svg]:size-4'
+const tool = 'grid size-11 shrink-0 place-items-center rounded-full text-slate-600 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-teal-600 [&>svg]:size-4'
 const clock = new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit' })
 const date = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' })
 
@@ -46,11 +47,11 @@ export function DemoInbox({ demo, history, onAgent, onGroup, onClose }: {
     const message = latest?.messages.at(-1)
     return { ...item, time: latest?.updatedAt, preview: transcriptPreview(message) }
   }).sort((a, b) => (b.time ?? 0) - (a.time ?? 0)).filter((item) =>
-    `${item.title} ${item.preview}`.toLocaleLowerCase().includes(needle))
+    `${item.title} ${item.kind === 'private' ? ROLE_TH[item.agent] : ''} ${item.preview}`.toLocaleLowerCase().includes(needle))
   return <section aria-label="รายการสนทนา" className="flex h-full min-h-0 flex-col bg-white text-slate-900">
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4">
       <h2 className="font-semibold">แชต</h2>
-      <button type="button" aria-label="ปิดแชต" className={tool} onClick={onClose}><X /></button>
+      <button type="button" className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-teal-800" onClick={onClose}><ArrowLeft className="size-4" />กลับห้องแล็บ</button>
     </header>
     <label className="mx-3 mt-3 flex shrink-0 items-center gap-2 rounded-lg bg-slate-100 px-3 text-sm text-slate-500">
       <Search aria-hidden="true" className="size-4" />
@@ -63,7 +64,7 @@ export function DemoInbox({ demo, history, onAgent, onGroup, onClose }: {
           {item.kind === 'group' ? <GroupFace roles={item.agents} /> : <AgentFace role={item.agent} size={40} />}
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-1.5">
-              <span className="min-w-0 truncate text-sm font-semibold" title={item.title}>{item.title}</span>
+              <span className="min-w-0 truncate text-sm font-semibold" title={item.title}>{item.kind === 'private' ? ROLE_TH[item.agent] : item.title}</span>
               {item.kind === 'group' && <span aria-label={`สมาชิก ${item.agents.length + 1} คน`} className="shrink-0 text-xs text-slate-500">({item.agents.length + 1})</span>}
               {item.time != null && <time dateTime={new Date(item.time).toISOString()} className="ml-auto shrink-0 text-[10px] text-slate-500">
                 {(new Date(item.time).toDateString() === new Date().toDateString() ? clock : date).format(item.time)}
@@ -78,11 +79,11 @@ export function DemoInbox({ demo, history, onAgent, onGroup, onClose }: {
   </section>
 }
 
-export function DemoChatHeader({ agent, job, viewer, navigate, onClose, actions }: {
+export function DemoChatHeader({ agent, job, viewer, navigate, actions }: {
   actions?: ReactNode
-  agent: AgentRole; job?: Job; viewer: AgentDemo['viewer']; navigate: (screen: DemoScreen) => void; onClose: () => void
+  agent: AgentRole; job?: Job; viewer: AgentDemo['viewer']; navigate: (screen: DemoScreen) => void
 }) {
-  const title = job?.title ?? ROLE_EN[agent]
+  const title = job?.title ?? ROLE_TH[agent]
   return <header className="flex h-14 shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-2">
     <button type="button" className={tool} onClick={() => navigate({ kind: 'inbox' })} aria-label="รายการแชต" title="รายการแชต"><ArrowLeft /></button>
     {job ? <GroupFace roles={job.assignees} /> : <AgentFace role={agent} size={32} />}
@@ -100,6 +101,5 @@ export function DemoChatHeader({ agent, job, viewer, navigate, onClose, actions 
       </PopoverContent>
     </Popover>}
     {actions}
-    <button type="button" className={tool} onClick={onClose} aria-label="ปิดแชต"><X /></button>
   </header>
 }

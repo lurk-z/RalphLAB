@@ -8,6 +8,25 @@
   min-height: 0;
 }
 
+.lab-room-pane { container-type: inline-size; }
+
+.lab-room-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  gap: 12px;
+  padding: 12px clamp(12px, 2vw, 24px) max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid #cbd5e1;
+  background: #fff;
+}
+
+.lab-room-actions { display: flex; align-items: center; gap: 8px; }
+@container (max-width: 600px) {
+  .lab-room-actions { width: 100%; }
+}
+
 /* Measure the Lab pane itself so the camera frames only the visible area. */
 .lab-room-viewport {
   position: absolute;
@@ -118,13 +137,20 @@
 }
 
 @container (max-width: 719px) {
-  .lab-chat-split {
-    flex-direction: column;
+  .lab-chat-split[data-chat-open='true'] .lab-room-pane {
+    visibility: hidden;
   }
 
   .lab-chat-panel {
-    flex: 0 1 62%;
-    border-top: 1px solid #e2e8f0;
+    position: absolute;
+    inset: 0;
+    background: white;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .lab-chat-panel textarea,
+  .lab-chat-panel input[type='search'] {
+    font-size: 16px;
   }
 
   .lab-chat-divider {
