@@ -18,6 +18,20 @@ const directorTools = [
 const readWorkTool=labTool("read_project_work","แสดงข้อมูลใบงานหรือรอบติดตามจริงในแชต เมื่อขอดูผล ความคืบหน้า หรือรายการงาน ใช้ record_id=null สำหรับรายการ หรือ UUID ของงานในโปรเจกต์",
   {collection:{type:"string",enum:["orders","timed"]},record_id:{type:["string","null"]}});
 const handoffTool=labTool("ask_director_to_run","เมื่อผู้ใช้สั่งให้ทำงานซึ่งต้องใช้เครื่องมือหัวหน้า ให้ส่งคำขอเดิมให้หัวหน้าดำเนินการในแชตนี้ ยังคงขอบเขตงานและข้อมูลของผู้ใช้", {});
+// Only shortcut standalone commands on the fixed references shipped with the protein desk.
+// Unknown words, other tasks, history, questions and named orders keep the normal planner.
+function explicitReferenceAnalysis(question){
+  const text=question.normalize("NFC").trim().toLowerCase();
+  const match=text.match(/^(?:(?:ช่วย|กรุณา|ขอให้|please)\s*)?(?:จัดแนว|เปรียบเทียบ|เทียบ|align\b|superpose\b|superimpose\b|compare\b)\s*(.+)$/u);
+  if(!match)return null;
+  const task=match[1].replace(/\s*[,，]?\s*(?:(?:แล้ว|และ)\s*(?:แจ้ง|รายงาน|แสดง|บอก)(?:ผล|ค่า|ผลค่า)?\s*rmsd(?:\s*ในแช[ตท](?:นี้)?)?|(?:and|then)\s+(?:report|show|return)\s+(?:the\s+)?rmsd(?:\s+(?:here|in (?:this |the )?chat))?)\s*(?:ด้วย|ครับ|ค่ะ|เลย)?[.!]*$/u,"");
+  const hasGfp=/\b(?:gfp|1ema|green fluorescent protein)\b/.test(task);
+  const hasInsulin=/อินซูลิน|\b(?:insulin|3i40|1trz)\b/.test(task);
+  const hasLispro=/ลิสโปร|\b(?:lispro|1lph)\b/.test(task);
+  if(hasGfp===hasInsulin || (hasLispro && !hasInsulin) || (hasLispro && /\b3i40\b/.test(task)) || (!hasLispro && /\b1trz\b/.test(task)))return null;
+  const rest=task.replace(/\b(?:green fluorescent protein|gfp|1ema|insulin|3i40|1trz|1lph|lispro|human|native|protein|structures?|references?|on|the|desk|table|3d|with|and|to|against|now|please)\b|อินซูลิน|ลิสโปร|โครงสร้าง|อ้างอิง|โปรตีน|ของ|มาตรฐาน|ปกติ|กับ|และ|บนโต๊ะ|ให้เลย|ให้หน่อย|หน่อย|ด้วย|เลย|ครับ|ค่ะ|[\s(),.!-]/gu,"");
+  return rest ? null : hasGfp ? "gfp" : hasLispro ? "insulin_lispro" : "insulin";
+}
 function chatToolsFor(role,question=""){
   if(role==="director" && requestsNewHourlyStudy(question))return [labScheduleTool()];
   const qsar=labQsarTools.filter(t=>role==="director" || (["analyst","evaluator"].includes(role) && t.name==="read_chat_qsar"));
@@ -30,13 +44,16 @@ const formulaDraftTool=labTool("draft_cosmetic_formula","เสนอสูต�
 async function planLabChat(env,b,evidence) {
   requireValue(Object.hasOwn(labRoles,b.role),422,"ไม่พบบทบาท");
   const question=label(b.question,4000);
+  const reference=explicitReferenceAnalysis(question);
+  const directHandoff=reference && b.role!=="director";
+  if(directHandoff)b={...b,role:"director"};
   const history=Array.isArray(b.history)?b.history.slice(-12).map(m=>({
     role:m?.role==="assistant"?"assistant":"user",content:label(m?.text,2000)
   })):[];
   const key=String(env.OPENAI_API_KEY||"").trim().replace(/^OPENAI_API_KEY\s*=\s*/i,"").replace(/^Bearer\s+/i,"").replace(/^(["'])(.*)\1$/,"$2").trim();
   requireValue(key,503,"แชท OpenAI ยังไม่ได้ตั้งค่าบนเซิร์ฟเวอร์");
   const context=typeof b.context==="string"?b.context.slice(0,4000):"";
-  const available=chatToolsFor(b.role,question);
+  const available=reference?directorTools.filter(tool=>tool.name==="protein_study"):chatToolsFor(b.role,question);
   let response;
   try {
     response=await fetch("https://api.openai.com/v1/responses",{method:"POST",redirect:"manual",
@@ -57,13 +74,15 @@ async function planLabChat(env,b,evidence) {
         ].join("\n"),input:[...history,{role:"user",content:JSON.stringify({question,project_context:context,
           recent_project_orders:b.records,recent_timed_studies:b.timed,as_of:new Date().toISOString(),
           sources:evidence.sources,source_notices:evidence.notices})}],
-        tools:available,parallel_tool_calls:b.role==="director",
+        tools:available,parallel_tool_calls:!reference && b.role==="director",
+        ...(reference && {tool_choice:{type:"function",name:"protein_study"}}),
       })});
   } catch {throw new ApiError(502,"ติดต่อ OpenAI ไม่สำเร็จ กรุณาลองอีกครั้ง");}
   requireValue(response.ok,response.status===429?429:502,"OpenAI ยังตอบคำขอนี้ไม่ได้ (HTTP "+response.status+")");
   const result=await response.json();
   requireValue(result.status==="completed",502,"OpenAI ตอบไม่ครบ กรุณาลองอีกครั้ง");
   const calls=(result.output||[]).filter(item=>item.type==="function_call");
+  if(reference)requireValue(calls.length===1 && calls[0].name==="protein_study",502,"OpenAI ยังไม่ส่งคำสั่งจัดแนว กรุณาลองอีกครั้ง");
   if(calls.length) {
     requireValue(calls.length<=4,422,"คำขอนี้มีหลายงานเกินกว่าจะดำเนินการพร้อมกัน กรุณาส่งครั้งละไม่เกินสี่งาน");
     const actions=[];
@@ -85,6 +104,7 @@ async function planLabChat(env,b,evidence) {
     let args;
     try {args=JSON.parse(call.arguments);} catch {throw new ApiError(502,"OpenAI ส่งข้อมูลคำสั่งไม่ครบ");}
     requireValue(args && typeof args==="object" && !Array.isArray(args),502,"อ่านข้อมูลเครื่องมือไม่ได้");
+    if(reference)return {tool:"protein_study",args:{model:reference,operation:"analyze",brief:question,order_id:null},...(directHandoff && {handledBy:"director"})};
     const plan={tool:call.name,args};
     if(labQsarTools.some(t=>t.name===call.name)){
       const validated=validateQsarIntent(plan,b);

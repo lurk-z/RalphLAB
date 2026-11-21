@@ -30,12 +30,43 @@ function requestsNewHourlyStudy(question){
   if(!create.test(text) || /(?:สมมุ?ติ|ตัวอย่าง|ไม่(?:ต้อง|เอา|ให้|อยาก)|ห้าม|ได้(?:ไหม|มั้ย)|ทำยังไง|อย่างไร|หรือไม่|[?？]|\b(?:how|could|would|hypothetical|example|don.t|do not)\b)/i.test(text))return false;
   return !/(?:ดู|ขอ|อ่าน|เช็ก|เช็ค|ตรวจสอบ)(?:สถานะ|ผล|รายงาน|ใบงานเดิม)|บันทึก(?:ค่า|ผล)|วัด(?:ได้|มาแล้ว)|(?:และ|พร้อม(?:ทั้ง|กับ)?|แล้ว|จากนั้น)\s*(?:สร้าง|เปิด|สั่ง|รัน|ประเมิน|ค้น|อ่าน|บันทึก)|\b(?:status|recorded|measured|and (?:create|run|check|search))\b/i.test(text);
 }
+function statedObservationGoal(parts){
+  // Keep the user's own purpose when the model paraphrases it or adds context from the brief.
+  for(const raw of [...parts].reverse()){
+    const text=String(raw||'');
+    const found=text.match(/(?:เป้าหมาย(?:คือ)?|วัตถุประสงค์(?:คือ)?|\bgoal\s*[:=])\s*[:：]?\s*([^\n.;!?]{1,160})/i) ||
+      text.match(/(?:อยาก|ต้องการ|เพื่อ(?:จะ)?)(ติดตาม|ดู|สังเกต|ตรวจสอบ|เปรียบเทียบ)([^\n.;!?]{1,140})/) ||
+      text.match(/(?:\b(?:goal is to|want to|in order to|so (?:we|I) can)\s+)((?:monitor|track|observe|assess|compare)\s+[^\n.;!?]{1,140})/i);
+    if(!found)continue;
+    const quoted=found.slice(1).join('').split(/[,，;]|\s+(?:เงื่อนไข|เก็บที่|ที่อุณหภูมิ|วัด|ตัวชี้วัด|หน่วย|ทุก|เมื่อ|รอบ|ถ้า|ภายใต้|(?:condition|using|at|every|measure|metric|unit)\b)/i)[0].trim();
+    if(quoted.length>=3)return quoted;
+  }
+  return null;
+}
+function statedMeasurementFields(parts){
+  const fields={};
+  for(const text of [...parts].reverse().map(p=>String(p||''))){
+    const temperature=text.match(/(?:ที่|ภายใต้|เงื่อนไข\s*[:：]?)\s*(อุณหภูมิห้อง)/) || text.match(/\bat\s+(room temperature)\b/i);
+    // The matched words are literal intake fields, never numerical observations.
+    const measurement=text.match(/(?:วัด|ประเมิน)([^\n,;:]{1,55}?)\s*เป็น\s*([^\n,;:]{1,30}?)(?=\s*(?:ที่|ทุก|หลัง|รอบ|ภายใต้|[.,]|$))/) ||
+      text.match(/\bmeasure\s+([^\n.,;:]{1,55}?)\s+in\s+([^\n.,;:]{1,30}?)(?=\s+(?:at|after|every|under)\b|[.,;]|$)/i);
+    if(!fields.condition&&temperature&&!/(?:ไม่(?:ได้)?(?:ใช่|เก็บ|อยู่)?ที่|\bnot at)\s*(?:อุณหภูมิห้อง|room temperature)/i.test(text))fields.condition=temperature[1];
+    if(!fields.metric&&measurement){fields.metric=measurement[1].trim();fields.unit=measurement[2].trim();}
+  }
+  return fields;
+}
 function validateScheduleIntent(args,b){
   const parts=[...(Array.isArray(b.history)?b.history:[]).filter(m=>m?.role==="user").slice(-4).map(m=>m.text),b.question];
   const text=numericWorkText(parts.join("\n"));
   const clean=s=>numericWorkText(s).toLowerCase().replace(/\s+/g,"");
+  if(typeof args.goal!=="string" || !args.goal.trim() || !clean(text).includes(clean(args.goal))){
+    const grounded=statedObservationGoal(parts);
+    if(grounded)args.goal=grounded;
+  }
+  const supplied=statedMeasurementFields(parts);
   for(const [field,question] of [["goal","ต้องการติดตามเพื่อดูอะไร"],["condition","จะเก็บตัวอย่างภายใต้เงื่อนไขใด"],
     ["metric","ต้องการวัดตัวชี้วัดอะไร"],["unit","ใช้หน่วยหรือสเกลอะไรสำหรับตัวชี้วัดนี้"]]){
+    if(supplied[field] && typeof args[field]==='string' && !clean(text).includes(clean(args[field])) && clean(args[field]).includes(clean(supplied[field])))args[field]=supplied[field];
     requireValue(typeof args[field]==="string" && args[field].trim() && clean(text).includes(clean(args[field])),422,question);
   }
   const {points,every}=statedHours(text);

@@ -38,7 +38,8 @@ const evidenceSubjects=[
 const evidenceRequest=/อ้างอิง|หลักฐาน|งานวิจัย|วรรณกรรม|บทความ|เปเปอร์|เอกสาร|ไฟล์|ค้นหา|แหล่งข้อมูล|source|research|evidence|paper|reference|literature|open[ -]?source/i;
 const publicResearchRequest=/ค้น|หา(?:งานวิจัย|บทความ|เปเปอร์|หลักฐาน|แหล่ง|งานโอเพน)|จาก(?:เว็บ|เน็ต|เน็ท)|ออนไลน์|เพิ่มเติม|ไม่พอ|search|find|look up|open[ -]?source/i;
 const navigateRequest=/^(?:ช่วย)?(?:เปิด|ไปที่|ไปหน้า|แสดงหน้า|open|show me)(?:\s*(?:หน้า|โต๊ะ))?\s*(?:ใบงาน|หน้า|ห้อง|งานติดตาม|โปรตีน|protein|self.test|project|orders|timed)/i;
-const noPublicSearch=/(?:ไม่(?:ต้อง|ให้|อยาก)|ห้าม)(?:ไป)?(?:ค้น|หา|ใช้เว็บ)|เฉพาะ(?:เอกสาร|ไฟล์|คลัง|หลักฐาน)(?:ใน|ที่อัป)|only (?:my|project|uploaded)|do not search|don.t search|no web/i;
+const projectOnlyRequest=/เฉพาะ(?:เอกสาร|ไฟล์|คลัง|หลักฐาน|ข้อมูล|แหล่ง)(?:ใน|ที่อัป|ของโปรเจกต์)|(?:เอกสาร|ไฟล์|ข้อมูล|หลักฐาน)(?:ใน|ของ)โปรเจกต์เท่านั้น|only (?:my|project|uploaded)|project (?:sources|files) only/i;
+const noPublicSearch=/(?:ไม่(?:ต้อง|ให้|อยาก)|ห้าม)(?:ไป)?(?:ค้น|หา|ใช้เว็บ)|do not search|don.t search|no web/i;
 function evidenceText(v,n=500) {return typeof v==="string"?v.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim().slice(0,n):"";}
 function evidenceUrl(raw,project) {
   if(typeof raw!=="string"||raw.length>1300)return "";
@@ -133,6 +134,8 @@ async function collectLabEvidence(env,b,scope={}) {
       if(exists)reviewed.push(...(await reviewedChatEvidence(env.DB,scope.timedOwner,timedScope)).map(s=>({...s,timedScope})));
     }catch{notices.push("อ่านหลักฐานของใบงานติดตามไม่สำเร็จ");}
   }
+  const supportingUrls=new Set(reviewed.filter(s=>[s.excerpt,s.review?.note,s.coverage==="ข้อความบางส่วนจากบทคัดย่อ"?s.detail:""]
+    .some(text=>evidenceText(text).length>=30)).map(s=>evidenceUrl(s.url,scope.project)||s.url));
   let projectSources=reviewed.map(s=>({kind:"project",provider:s.timedScope?"ใบงานติดตาม":"คลังโปรเจกต์",title:evidenceText(s.title,270),
     url:s.timedScope&&new RegExp("^/api/research/"+s.timedScope+"/files/[a-zA-Z0-9-]+/\\d{1,2}$").test(s.url) ? (scope.native?"":s.url) : evidenceUrl(s.url,scope.project),
     detail:[s.locator,s.review?.note,s.excerpt||s.detail].map(t=>evidenceText(t,350)).filter(Boolean).join(" · ").slice(0,850),
@@ -147,6 +150,7 @@ async function collectLabEvidence(env,b,scope={}) {
     const snapshot=Array.isArray(row.request?.chat_sources)?row.request.chat_sources:[];
     for(const s of snapshot.slice(0,14)){
       if(!s||typeof s!=="object")continue;
+      if(s.coverage==="ข้อความบางส่วนจากบทคัดย่อ"&&evidenceText(s.detail).length>=30)supportingUrls.add(evidenceUrl(s.url,scope.project));
       projectSources.push({kind:"project",provider:evidenceText(s.provider,80)||"ใบงานโปรเจกต์",title:evidenceText(s.title,270),
         url:evidenceUrl(s.url,scope.project),detail:evidenceText(s.detail),coverage:s.cited?"อ้างในใบงานก่อนหน้า":"แนบกับใบงานก่อนหน้า"});
     }
@@ -175,8 +179,11 @@ async function collectLabEvidence(env,b,scope={}) {
   }))].map(k=>chatCatalog[k]) : roleReferences(b.role);
   const subject=subjects.find(s=>s.search);
   const askOnline=publicResearchRequest.test(question);
-  const localOnly=noPublicSearch.test(question);
-  const allowSearch=!localOnly&&(askOnline || (asks||interpret)&&projectSources.length===0);
+  const useProjectOnly=projectOnlyRequest.test(question);
+  const localOnly=useProjectOnly||noPublicSearch.test(question);
+  // A link, title or repeated order citation cannot corroborate a finding.
+  const supportingCount=projectSources.filter(s=>supportingUrls.has(s.url)).length;
+  const allowSearch=!localOnly&&(askOnline || (asks||interpret)&&supportingCount<2);
   let found=[];
   if(subject && allowSearch){
     const software=/ซอฟต์แวร์|เครื่องมือ|โอเพนซอร์ส|โอเพ่นซอร์ส|open[ -]?source|github/i.test(question);
@@ -187,10 +194,9 @@ async function collectLabEvidence(env,b,scope={}) {
       try {await archiveChatLookup(env.DB,scope.user,scope.project,b,subject,result);}
       catch {notices.push("บันทึกการค้นลงคลังโปรเจกต์ไม่สำเร็จ");}
     }
-  }else if(askOnline && !subject && !noPublicSearch.test(question)){
+  }else if(askOnline && !subject && !localOnly){
     notices.push("ยังไม่ได้ค้นภายนอก ระบุหัวข้อ เช่น ความคงตัวของสูตร การวัดสี หรือความเที่ยงของวิธีวิเคราะห์");
   }
-  const useProjectOnly=/เฉพาะ(?:เอกสาร|ไฟล์|คลัง|หลักฐาน)(?:ใน|ที่อัป)|only (?:my|project|uploaded)/i.test(question);
   const sources=dedupeChatSources([...projectSources.slice(0,5),...(useProjectOnly?[]:references.slice(0,4)).map(r=>({...r,kind:"reference",coverage:"สรุปขอบเขตจากทะเบียนเอกสาร"})),...found]).slice(0,14);
   if(useProjectOnly&&!projectSources.length)notices.push("ยังไม่มีแหล่งที่ทีมเลือกใช้ในคลังโปรเจกต์นี้");
   return {sources:sources.map((s,i)=>({id:"S"+(i+1),...s})),notices};
